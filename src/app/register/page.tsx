@@ -6,6 +6,21 @@ import Link from 'next/link'
 import { DollarSign } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import { useToast } from '@/components/ui/Toast'
+
+function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+  let score = 0
+  if (password.length >= 8) score++
+  if (/[A-Z]/.test(password)) score++
+  if (/[a-z]/.test(password)) score++
+  if (/[0-9]/.test(password)) score++
+  if (/[^A-Za-z0-9]/.test(password)) score++
+
+  if (score <= 2) return { score, label: 'Weak', color: 'bg-red-500' }
+  if (score <= 3) return { score, label: 'Fair', color: 'bg-yellow-500' }
+  if (score <= 4) return { score, label: 'Good', color: 'bg-blue-500' }
+  return { score, label: 'Strong', color: 'bg-green-500' }
+}
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -18,6 +33,9 @@ export default function RegisterPage() {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
+
+  const strength = getPasswordStrength(formData.password)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,10 +55,13 @@ export default function RegisterPage() {
         throw new Error(data.error || 'Registration failed')
       }
 
+      toast('Account created! Please check your email to verify.', 'success')
       router.push('/dashboard')
       router.refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      const message = err instanceof Error ? err.message : 'Registration failed'
+      setError(message)
+      toast(message, 'error')
     } finally {
       setLoading(false)
     }
@@ -111,15 +132,29 @@ export default function RegisterPage() {
               placeholder="you@example.com"
             />
 
-            <Input
-              label="Password"
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              placeholder="At least 8 characters"
-            />
+            <div>
+              <Input
+                label="Password"
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                placeholder="At least 8 characters"
+              />
+              {formData.password && (
+                <div className="mt-2">
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <div key={i} className={`h-1.5 flex-1 rounded-full ${i <= strength.score ? strength.color : 'bg-secondary-200'}`} />
+                    ))}
+                  </div>
+                  <p className="text-xs text-secondary-500 mt-1">
+                    Strength: {strength.label} &mdash; Use uppercase, lowercase, numbers, and special characters
+                  </p>
+                </div>
+              )}
+            </div>
 
             <Button type="submit" className="w-full" loading={loading}>
               Create Account

@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function mapPlaidAccountType(plaidType: string): string {
-  const typeMap: Record<string, string> = {
+function mapPlaidAccountType(plaidType: string): 'CHECKING' | 'SAVINGS' | 'CREDIT_CARD' | 'LOAN' | 'INVESTMENT' | 'OTHER' {
+  const typeMap: Record<string, 'CHECKING' | 'SAVINGS' | 'CREDIT_CARD' | 'LOAN' | 'INVESTMENT' | 'OTHER'> = {
     depository: 'CHECKING',
     credit: 'CREDIT_CARD',
     loan: 'LOAN',

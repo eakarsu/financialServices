@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { DollarSign } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import { useToast } from '@/components/ui/Toast'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,10 +34,13 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed')
       }
 
+      toast('Welcome back!', 'success')
       router.push('/dashboard')
       router.refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      const message = err instanceof Error ? err.message : 'Login failed'
+      setError(message)
+      toast(message, 'error')
     } finally {
       setLoading(false)
     }
@@ -75,14 +80,21 @@ export default function LoginPage() {
               placeholder="you@example.com"
             />
 
-            <Input
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="Enter your password"
-            />
+            <div>
+              <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Enter your password"
+              />
+              <div className="mt-1 text-right">
+                <Link href="/forgot-password" className="text-sm text-primary-600 hover:text-primary-700">
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
 
             <Button type="submit" className="w-full" loading={loading}>
               Sign In

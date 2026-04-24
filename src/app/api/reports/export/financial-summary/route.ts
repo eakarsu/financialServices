@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
       const existing = monthlyData.get(monthKey) || { revenue: 0, expenses: 0 }
 
       if (tx.type === 'CREDIT') {
-        existing.revenue += tx.amount
+        existing.revenue += Number(tx.amount)
       } else {
-        existing.expenses += tx.amount
+        existing.expenses += Number(tx.amount)
       }
 
       monthlyData.set(monthKey, existing)
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     const filename = `financial-summary-${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
     const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,

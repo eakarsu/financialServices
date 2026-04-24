@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type')
     const status = searchParams.get('status')
     const search = searchParams.get('search')
+
+    const pagination = parsePaginationParams(request, 'createdAt')
 
     const where: Record<string, unknown> = {
       OR: [
@@ -31,17 +34,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const documents = await prisma.document.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        client: true,
-        uploadedBy: { select: { firstName: true, lastName: true } },
-        folder: true,
-      },
-    })
+    const [documents, total] = await Promise.all([
+      prisma.document.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          client: true,
+          uploadedBy: { select: { firstName: true, lastName: true } },
+          folder: true,
+        },
+      }),
+      prisma.document.count({ where }),
+    ])
 
-    return NextResponse.json(documents)
+    return NextResponse.json(buildPaginatedResponse(documents, total, pagination))
   } catch (error) {
     console.error('Get documents error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

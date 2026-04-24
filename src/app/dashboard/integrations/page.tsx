@@ -100,7 +100,7 @@ export default function IntegrationsPage() {
     ))
   }
 
-  const categories = [...new Set(integrations.map(i => i.category))]
+  const categories = Array.from(new Set(integrations.map(i => i.category)))
 
   return (
     <div className="space-y-6">

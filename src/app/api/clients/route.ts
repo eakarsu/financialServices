@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
 import { generateClientNumber } from '@/lib/utils'
 import { Permission, hasPermission } from '@/lib/permissions'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const type = searchParams.get('type')
     const search = searchParams.get('search')
+
+    const pagination = parsePaginationParams(request, 'createdAt')
 
     const where: Record<string, unknown> = { firmId: user.firmId }
 
@@ -38,22 +41,27 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const clients = await prisma.client.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        contacts: { where: { isPrimary: true }, take: 1 },
-        _count: {
-          select: {
-            documents: true,
-            engagements: true,
-            transactions: true,
+    const [clients, total] = await Promise.all([
+      prisma.client.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          contacts: { where: { isPrimary: true }, take: 1 },
+          _count: {
+            select: {
+              documents: true,
+              engagements: true,
+              transactions: true,
+            },
           },
         },
-      },
-    })
+      }),
+      prisma.client.count({ where }),
+    ])
 
-    return NextResponse.json(clients)
+    return NextResponse.json(buildPaginatedResponse(clients, total, pagination))
   } catch (error) {
     console.error('Get clients error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -73,7 +81,6 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json()
 
-    // Clean up data - convert empty strings to null for optional fields
     const cleanData: Record<string, unknown> = {
       type: data.type || 'INDIVIDUAL',
       status: data.status || 'ACTIVE',
@@ -81,7 +88,6 @@ export async function POST(request: NextRequest) {
       firmId: user.firmId,
     }
 
-    // Add fields only if they have values
     if (data.firstName) cleanData.firstName = data.firstName
     if (data.lastName) cleanData.lastName = data.lastName
     if (data.businessName) cleanData.businessName = data.businessName
@@ -96,7 +102,7 @@ export async function POST(request: NextRequest) {
     if (data.notes) cleanData.notes = data.notes
 
     const client = await prisma.client.create({
-      data: cleanData,
+      data: cleanData as any,
       include: {
         contacts: true,
       },

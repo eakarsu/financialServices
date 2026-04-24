@@ -1,20 +1,34 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  Plus, Clock, DollarSign, FileText, CheckSquare, Users, Calendar,
-  Play, Pause, Send, Download
+  Clock, DollarSign, FileText, CheckSquare,
+  Send, Download
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Textarea from '@/components/ui/Textarea'
-import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
+import Card, { CardContent } from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import Modal from '@/components/ui/Modal'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
+import { TableSkeleton } from '@/components/ui/Skeleton'
+import Pagination from '@/components/ui/Pagination'
+import SortableHeader from '@/components/ui/SortableHeader'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
+
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
+}
 
 interface TimeEntry {
   id: string
@@ -78,7 +92,18 @@ interface ServiceItem {
   category?: string
 }
 
+const defaultPagination: PaginationInfo = {
+  page: 1,
+  limit: 20,
+  total: 0,
+  totalPages: 0,
+  hasNext: false,
+  hasPrev: false,
+}
+
 export default function PracticePage() {
+  const { toast } = useToast()
+
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
@@ -87,6 +112,9 @@ export default function PracticePage() {
   const [settings, setSettings] = useState<FirmSettings | null>(null)
   const [serviceItems, setServiceItems] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [timeLoading, setTimeLoading] = useState(false)
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [taskLoading, setTaskLoading] = useState(false)
   const [showTimeModal, setShowTimeModal] = useState(false)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
@@ -98,6 +126,36 @@ export default function PracticePage() {
   const [selectedTimeEntry, setSelectedTimeEntry] = useState<TimeEntry | null>(null)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    onConfirm: () => void
+    loading: boolean
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, loading: false })
+
+  // Time entries pagination
+  const [timePage, setTimePage] = useState(1)
+  const [timeLimit, setTimeLimit] = useState(20)
+  const [timeSortBy, setTimeSortBy] = useState('date')
+  const [timeSortOrder, setTimeSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [timePagination, setTimePagination] = useState<PaginationInfo>(defaultPagination)
+
+  // Invoices pagination
+  const [invoicePage, setInvoicePage] = useState(1)
+  const [invoiceLimit, setInvoiceLimit] = useState(20)
+  const [invoiceSortBy, setInvoiceSortBy] = useState('createdAt')
+  const [invoiceSortOrder, setInvoiceSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [invoicePagination, setInvoicePagination] = useState<PaginationInfo>(defaultPagination)
+
+  // Tasks pagination
+  const [taskPage, setTaskPage] = useState(1)
+  const [taskLimit, setTaskLimit] = useState(20)
+  const [taskSortBy, setTaskSortBy] = useState('createdAt')
+  const [taskSortOrder, setTaskSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [taskPagination, setTaskPagination] = useState<PaginationInfo>(defaultPagination)
 
   const [timeForm, setTimeForm] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -126,51 +184,155 @@ export default function PracticePage() {
     assignedToId: '',
   })
 
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
+  const fetchTimeEntries = useCallback(async () => {
+    setTimeLoading(true)
     try {
-      const [timeRes, invoiceRes, taskRes, clientRes, settingsRes, serviceItemsRes] = await Promise.all([
-        fetch('/api/practice/time-entries'),
-        fetch('/api/practice/invoices'),
-        fetch('/api/practice/tasks'),
+      const params = new URLSearchParams({
+        page: timePage.toString(),
+        limit: timeLimit.toString(),
+        sortBy: timeSortBy,
+        sortOrder: timeSortOrder,
+      })
+      const res = await fetch(`/api/practice/time-entries?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch time entries')
+      const json = await res.json()
+      setTimeEntries(json.data)
+      setTimePagination(json.pagination)
+    } catch (error) {
+      toast('Failed to load time entries', 'error')
+    } finally {
+      setTimeLoading(false)
+    }
+  }, [timePage, timeLimit, timeSortBy, timeSortOrder, toast])
+
+  const fetchInvoices = useCallback(async () => {
+    setInvoiceLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: invoicePage.toString(),
+        limit: invoiceLimit.toString(),
+        sortBy: invoiceSortBy,
+        sortOrder: invoiceSortOrder,
+      })
+      const res = await fetch(`/api/practice/invoices?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch invoices')
+      const json = await res.json()
+      setInvoices(json.data)
+      setInvoicePagination(json.pagination)
+    } catch (error) {
+      toast('Failed to load invoices', 'error')
+    } finally {
+      setInvoiceLoading(false)
+    }
+  }, [invoicePage, invoiceLimit, invoiceSortBy, invoiceSortOrder, toast])
+
+  const fetchTasks = useCallback(async () => {
+    setTaskLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: taskPage.toString(),
+        limit: taskLimit.toString(),
+        sortBy: taskSortBy,
+        sortOrder: taskSortOrder,
+      })
+      const res = await fetch(`/api/practice/tasks?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch tasks')
+      const json = await res.json()
+      setTasks(json.data)
+      setTaskPagination(json.pagination)
+    } catch (error) {
+      toast('Failed to load tasks', 'error')
+    } finally {
+      setTaskLoading(false)
+    }
+  }, [taskPage, taskLimit, taskSortBy, taskSortOrder, toast])
+
+  const fetchReferenceData = useCallback(async () => {
+    try {
+      const [clientRes, settingsRes, serviceItemsRes] = await Promise.all([
         fetch('/api/clients'),
         fetch('/api/settings'),
         fetch('/api/service-items'),
       ])
 
-      setTimeEntries(await timeRes.json())
-      setInvoices(await invoiceRes.json())
-      setTasks(await taskRes.json())
       setClients(await clientRes.json())
 
       const serviceItemsData = await serviceItemsRes.json()
-      console.log('Service Items fetched:', serviceItemsData)
-      console.log('Service Items response status:', serviceItemsRes.status)
-      // Ensure it's an array, if error object is returned, use empty array
       setServiceItems(Array.isArray(serviceItemsData) ? serviceItemsData : [])
 
       const settingsData = await settingsRes.json()
       setSettings(settingsData)
 
-      // Set default rate from settings
       if (settingsData?.defaultHourlyRate) {
         setTimeForm(prev => ({ ...prev, rate: settingsData.defaultHourlyRate.toString() }))
       }
     } catch (error) {
-      console.error('Error fetching data:', error)
-    } finally {
+      toast('Failed to load reference data', 'error')
+    }
+  }, [toast])
+
+  useEffect(() => {
+    const loadAll = async () => {
+      setLoading(true)
+      await Promise.all([
+        fetchTimeEntries(),
+        fetchInvoices(),
+        fetchTasks(),
+        fetchReferenceData(),
+      ])
       setLoading(false)
     }
+    loadAll()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch when pagination/sort changes
+  useEffect(() => {
+    if (!loading) fetchTimeEntries()
+  }, [timePage, timeLimit, timeSortBy, timeSortOrder]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!loading) fetchInvoices()
+  }, [invoicePage, invoiceLimit, invoiceSortBy, invoiceSortOrder]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!loading) fetchTasks()
+  }, [taskPage, taskLimit, taskSortBy, taskSortOrder]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTimeSort = (sortKey: string) => {
+    if (timeSortBy === sortKey) {
+      setTimeSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setTimeSortBy(sortKey)
+      setTimeSortOrder('desc')
+    }
+    setTimePage(1)
+  }
+
+  const handleInvoiceSort = (sortKey: string) => {
+    if (invoiceSortBy === sortKey) {
+      setInvoiceSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setInvoiceSortBy(sortKey)
+      setInvoiceSortOrder('desc')
+    }
+    setInvoicePage(1)
+  }
+
+  const handleTaskSort = (sortKey: string) => {
+    if (taskSortBy === sortKey) {
+      setTaskSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setTaskSortBy(sortKey)
+      setTaskSortOrder('desc')
+    }
+    setTaskPage(1)
   }
 
   const handleAddTime = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/practice/time-entries', {
+      const res = await fetch('/api/practice/time-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,6 +341,7 @@ export default function PracticePage() {
           rate: timeForm.isBillable ? parseFloat(timeForm.rate) : null,
         }),
       })
+      if (!res.ok) throw new Error('Failed to create time entry')
       setShowTimeModal(false)
       setTimeForm({
         date: new Date().toISOString().split('T')[0],
@@ -188,9 +351,10 @@ export default function PracticePage() {
         rate: settings?.defaultHourlyRate?.toString() || '150',
         engagementId: '',
       })
-      fetchData()
+      toast('Time entry logged successfully', 'success')
+      fetchTimeEntries()
     } catch (error) {
-      console.error('Error adding time entry:', error)
+      toast('Failed to log time entry', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -200,7 +364,7 @@ export default function PracticePage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/practice/invoices', {
+      const res = await fetch('/api/practice/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -208,6 +372,7 @@ export default function PracticePage() {
           taxRate: parseFloat(invoiceForm.taxRate),
         }),
       })
+      if (!res.ok) throw new Error('Failed to create invoice')
       setShowInvoiceModal(false)
       setInvoiceForm({
         clientId: '',
@@ -217,9 +382,10 @@ export default function PracticePage() {
         notes: '',
         lineItems: [{ serviceItemId: '', description: '', quantity: 1, rate: 0 }],
       })
-      fetchData()
+      toast('Invoice created successfully', 'success')
+      fetchInvoices()
     } catch (error) {
-      console.error('Error creating invoice:', error)
+      toast('Failed to create invoice', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -229,11 +395,12 @@ export default function PracticePage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/practice/tasks', {
+      const res = await fetch('/api/practice/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskForm),
       })
+      if (!res.ok) throw new Error('Failed to create task')
       setShowTaskModal(false)
       setTaskForm({
         title: '',
@@ -243,12 +410,64 @@ export default function PracticePage() {
         clientId: '',
         assignedToId: '',
       })
-      fetchData()
+      toast('Task created successfully', 'success')
+      fetchTasks()
     } catch (error) {
-      console.error('Error creating task:', error)
+      toast('Failed to create task', 'error')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleDeleteTimeEntry = (entry: TimeEntry) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Time Entry',
+      message: `Are you sure you want to delete this time entry for "${entry.description}"? This action cannot be undone.`,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, loading: true }))
+        try {
+          const res = await fetch(`/api/practice/time-entries/${entry.id}`, { method: 'DELETE' })
+          if (!res.ok) {
+            const errorData = await res.json()
+            throw new Error(errorData.error || 'Failed to delete time entry')
+          }
+          toast('Time entry deleted successfully', 'success')
+          setShowTimeDetailsModal(false)
+          setSelectedTimeEntry(null)
+          fetchTimeEntries()
+        } catch (error) {
+          toast(error instanceof Error ? error.message : 'Failed to delete time entry', 'error')
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, loading: false }))
+        }
+      },
+    })
+  }
+
+  const handleDeleteTask = (task: Task) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to delete the task "${task.title}"? This action cannot be undone.`,
+      loading: false,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, loading: true }))
+        try {
+          const res = await fetch(`/api/practice/tasks/${task.id}`, { method: 'DELETE' })
+          if (!res.ok) throw new Error('Failed to delete task')
+          toast('Task deleted successfully', 'success')
+          setShowTaskDetailsModal(false)
+          setSelectedTask(null)
+          fetchTasks()
+        } catch (error) {
+          toast('Failed to delete task', 'error')
+        } finally {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, loading: false }))
+        }
+      },
+    })
   }
 
   const getClientName = (client?: { businessName?: string; firstName?: string; lastName?: string }) => {
@@ -263,31 +482,6 @@ export default function PracticePage() {
 
   return (
     <div className="space-y-6">
-      {/* Debug Panel */}
-      <Card variant="bordered" className="bg-blue-50">
-        <CardContent className="p-4">
-          <h3 className="font-semibold mb-2">Debug Info:</h3>
-          <div className="grid grid-cols-4 gap-4 text-sm">
-            <div>
-              <p className="text-secondary-600">Time Entries:</p>
-              <p className="font-bold">{timeEntries.length} records</p>
-            </div>
-            <div>
-              <p className="text-secondary-600">Invoices:</p>
-              <p className="font-bold">{invoices.length} records</p>
-            </div>
-            <div>
-              <p className="text-secondary-600">Tasks:</p>
-              <p className="font-bold">{tasks.length} records</p>
-            </div>
-            <div>
-              <p className="text-secondary-600">Service Items:</p>
-              <p className="font-bold">{serviceItems.length} records</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-secondary-900">Practice Management</h1>
@@ -366,180 +560,284 @@ export default function PracticePage() {
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
 
+          {/* Time Entries Tab */}
           <TabsContent value="time" className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Staff</TableHead>
-                  <TableHead>Hours</TableHead>
-                  <TableHead>Rate</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
+            {timeLoading || loading ? (
+              <TableSkeleton rows={5} cols={7} />
+            ) : timeEntries.length === 0 ? (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">Loading...</TableCell>
+                    <SortableHeader label="Date" sortKey="date" currentSortBy={timeSortBy} currentSortOrder={timeSortOrder} onSort={handleTimeSort} />
+                    <TableHead>Description</TableHead>
+                    <TableHead>Staff</TableHead>
+                    <SortableHeader label="Hours" sortKey="hours" currentSortBy={timeSortBy} currentSortOrder={timeSortOrder} onSort={handleTimeSort} />
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
-                ) : timeEntries.length === 0 ? (
+                </TableHeader>
+                <TableBody>
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
                       No time entries found
                     </TableCell>
                   </TableRow>
-                ) : (
-                  timeEntries.map((entry) => (
-                    <TableRow
-                      key={entry.id}
-                      onClick={() => {
-                        setSelectedTimeEntry(entry)
-                        setShowTimeDetailsModal(true)
-                      }}
-                      className="cursor-pointer hover:bg-secondary-50"
-                    >
-                      <TableCell>{formatDate(entry.date)}</TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{entry.description}</p>
-                          {entry.engagement && (
-                            <p className="text-xs text-secondary-500">{getClientName(entry.engagement.client)}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{entry.user.firstName} {entry.user.lastName}</TableCell>
-                      <TableCell>{parseDecimal(entry.hours).toFixed(1)}</TableCell>
-                      <TableCell>
-                        {entry.isBillable ? formatCurrency(parseDecimal(entry.rate || '0')) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {entry.amount ? formatCurrency(parseDecimal(entry.amount)) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={entry.isBillable ? 'success' : 'default'}>
-                          {entry.isBillable ? 'Billable' : 'Non-billable'}
-                        </Badge>
-                      </TableCell>
+                </TableBody>
+              </Table>
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHeader label="Date" sortKey="date" currentSortBy={timeSortBy} currentSortOrder={timeSortOrder} onSort={handleTimeSort} />
+                      <TableHead>Description</TableHead>
+                      <TableHead>Staff</TableHead>
+                      <SortableHeader label="Hours" sortKey="hours" currentSortBy={timeSortBy} currentSortOrder={timeSortOrder} onSort={handleTimeSort} />
+                      <TableHead>Rate</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {timeEntries.map((entry) => (
+                      <TableRow
+                        key={entry.id}
+                        onClick={() => {
+                          setSelectedTimeEntry(entry)
+                          setShowTimeDetailsModal(true)
+                        }}
+                        className="cursor-pointer hover:bg-secondary-50"
+                      >
+                        <TableCell>{formatDate(entry.date)}</TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{entry.description}</p>
+                            {entry.engagement && (
+                              <p className="text-xs text-secondary-500">{getClientName(entry.engagement.client)}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>{entry.user.firstName} {entry.user.lastName}</TableCell>
+                        <TableCell>{parseDecimal(entry.hours).toFixed(1)}</TableCell>
+                        <TableCell>
+                          {entry.isBillable ? formatCurrency(parseDecimal(entry.rate || '0')) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          {entry.amount ? formatCurrency(parseDecimal(entry.amount)) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={entry.isBillable ? 'success' : 'default'}>
+                            {entry.isBillable ? 'Billable' : 'Non-billable'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Pagination
+                  page={timePagination.page}
+                  totalPages={timePagination.totalPages}
+                  total={timePagination.total}
+                  limit={timeLimit}
+                  onPageChange={setTimePage}
+                  onLimitChange={(newLimit) => {
+                    setTimeLimit(newLimit)
+                    setTimePage(1)
+                  }}
+                />
+              </>
+            )}
           </TabsContent>
 
+          {/* Invoices Tab */}
           <TabsContent value="invoices" className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Issue Date</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Paid</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
+            {invoiceLoading || loading ? (
+              <TableSkeleton rows={5} cols={8} />
+            ) : invoices.length === 0 ? (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">Loading...</TableCell>
+                    <SortableHeader label="Invoice #" sortKey="invoiceNumber" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                    <TableHead>Client</TableHead>
+                    <SortableHeader label="Issue Date" sortKey="issueDate" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                    <SortableHeader label="Due Date" sortKey="dueDate" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                    <SortableHeader label="Total" sortKey="total" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                    <TableHead>Paid</TableHead>
+                    <SortableHeader label="Status" sortKey="status" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                    <TableHead>Actions</TableHead>
                   </TableRow>
-                ) : invoices.length === 0 ? (
+                </TableHeader>
+                <TableBody>
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-secondary-500">
                       No invoices found
                     </TableCell>
                   </TableRow>
-                ) : (
-                  invoices.map((inv) => (
-                    <TableRow
-                      key={inv.id}
-                      onClick={() => {
-                        setSelectedInvoice(inv)
-                        setShowInvoiceDetailsModal(true)
-                      }}
-                      className="cursor-pointer hover:bg-secondary-50"
-                    >
-                      <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
-                      <TableCell>{getClientName(inv.client)}</TableCell>
-                      <TableCell>{formatDate(inv.issueDate)}</TableCell>
-                      <TableCell>{formatDate(inv.dueDate)}</TableCell>
-                      <TableCell>{formatCurrency(parseDecimal(inv.total))}</TableCell>
-                      <TableCell>{formatCurrency(parseDecimal(inv.paidAmount))}</TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          inv.status === 'PAID' ? 'success' :
-                          inv.status === 'OVERDUE' ? 'danger' :
-                          inv.status === 'SENT' ? 'info' : 'default'
-                        }>
-                          {inv.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" className="p-1" title="Send">
-                            <Send className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="p-1" title="Download">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                </TableBody>
+              </Table>
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHeader label="Invoice #" sortKey="invoiceNumber" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                      <TableHead>Client</TableHead>
+                      <SortableHeader label="Issue Date" sortKey="issueDate" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                      <SortableHeader label="Due Date" sortKey="dueDate" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                      <SortableHeader label="Total" sortKey="total" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                      <TableHead>Paid</TableHead>
+                      <SortableHeader label="Status" sortKey="status" currentSortBy={invoiceSortBy} currentSortOrder={invoiceSortOrder} onSort={handleInvoiceSort} />
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.map((inv) => (
+                      <TableRow
+                        key={inv.id}
+                        onClick={() => {
+                          setSelectedInvoice(inv)
+                          setShowInvoiceDetailsModal(true)
+                        }}
+                        className="cursor-pointer hover:bg-secondary-50"
+                      >
+                        <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
+                        <TableCell>{getClientName(inv.client)}</TableCell>
+                        <TableCell>{formatDate(inv.issueDate)}</TableCell>
+                        <TableCell>{formatDate(inv.dueDate)}</TableCell>
+                        <TableCell>{formatCurrency(parseDecimal(inv.total))}</TableCell>
+                        <TableCell>{formatCurrency(parseDecimal(inv.paidAmount))}</TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            inv.status === 'PAID' ? 'success' :
+                            inv.status === 'OVERDUE' ? 'danger' :
+                            inv.status === 'SENT' ? 'info' : 'default'
+                          }>
+                            {inv.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="p-1" title="Send">
+                              <Send className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="p-1" title="Download">
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Pagination
+                  page={invoicePagination.page}
+                  totalPages={invoicePagination.totalPages}
+                  total={invoicePagination.total}
+                  limit={invoiceLimit}
+                  onPageChange={setInvoicePage}
+                  onLimitChange={(newLimit) => {
+                    setInvoiceLimit(newLimit)
+                    setInvoicePage(1)
+                  }}
+                />
+              </>
+            )}
           </TabsContent>
 
+          {/* Tasks Tab */}
           <TabsContent value="tasks" className="p-4">
-            <div className="space-y-3">
-              {loading ? (
-                <p className="text-center py-8">Loading...</p>
-              ) : tasks.length === 0 ? (
-                <p className="text-center py-8 text-secondary-500">No tasks found</p>
-              ) : (
-                tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex items-center justify-between p-4 bg-secondary-50 rounded-lg cursor-pointer hover:bg-secondary-100"
-                    onClick={() => {
-                      setSelectedTask(task)
-                      setShowTaskDetailsModal(true)
-                    }}
-                  >
-                    <div className="flex items-center">
-                      <input type="checkbox" className="rounded mr-3" onClick={(e) => e.stopPropagation()} />
-                      <div>
-                        <p className="font-medium">{task.title}</p>
-                        <p className="text-sm text-secondary-500">
-                          {task.client && getClientName(task.client)}
-                          {task.dueDate && ` • Due: ${formatDate(task.dueDate)}`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={
-                        task.priority === 'URGENT' ? 'danger' :
-                        task.priority === 'HIGH' ? 'warning' : 'default'
-                      } size="sm">
-                        {task.priority}
-                      </Badge>
-                      <Badge variant={
-                        task.status === 'COMPLETED' ? 'success' :
-                        task.status === 'IN_PROGRESS' ? 'info' : 'default'
-                      } size="sm">
-                        {task.status.replace('_', ' ')}
-                      </Badge>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            {taskLoading || loading ? (
+              <TableSkeleton rows={5} cols={5} />
+            ) : tasks.length === 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHeader label="Title" sortKey="title" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                    <TableHead>Client</TableHead>
+                    <SortableHeader label="Due Date" sortKey="dueDate" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                    <SortableHeader label="Priority" sortKey="priority" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                    <SortableHeader label="Status" sortKey="status" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                    <TableHead>Assigned To</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-secondary-500">
+                      No tasks found
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHeader label="Title" sortKey="title" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                      <TableHead>Client</TableHead>
+                      <SortableHeader label="Due Date" sortKey="dueDate" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                      <SortableHeader label="Priority" sortKey="priority" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                      <SortableHeader label="Status" sortKey="status" currentSortBy={taskSortBy} currentSortOrder={taskSortOrder} onSort={handleTaskSort} />
+                      <TableHead>Assigned To</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tasks.map((task) => (
+                      <TableRow
+                        key={task.id}
+                        onClick={() => {
+                          setSelectedTask(task)
+                          setShowTaskDetailsModal(true)
+                        }}
+                        className="cursor-pointer hover:bg-secondary-50"
+                      >
+                        <TableCell>
+                          <p className="font-medium">{task.title}</p>
+                          {task.description && (
+                            <p className="text-xs text-secondary-500 truncate max-w-xs">{task.description}</p>
+                          )}
+                        </TableCell>
+                        <TableCell>{task.client ? getClientName(task.client) : '-'}</TableCell>
+                        <TableCell>{task.dueDate ? formatDate(task.dueDate) : '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            task.priority === 'URGENT' ? 'danger' :
+                            task.priority === 'HIGH' ? 'warning' : 'default'
+                          } size="sm">
+                            {task.priority}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            task.status === 'COMPLETED' ? 'success' :
+                            task.status === 'IN_PROGRESS' ? 'info' : 'default'
+                          } size="sm">
+                            {task.status.replace('_', ' ')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {task.assignedTo
+                            ? `${task.assignedTo.firstName} ${task.assignedTo.lastName}`
+                            : '-'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Pagination
+                  page={taskPagination.page}
+                  totalPages={taskPagination.totalPages}
+                  total={taskPagination.total}
+                  limit={taskLimit}
+                  onPageChange={setTaskPage}
+                  onLimitChange={(newLimit) => {
+                    setTaskLimit(newLimit)
+                    setTaskPage(1)
+                  }}
+                />
+              </>
+            )}
           </TabsContent>
         </Tabs>
       </Card>
@@ -608,6 +906,12 @@ export default function PracticePage() {
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
+              <Button
+                variant="danger"
+                onClick={() => handleDeleteTimeEntry(selectedTimeEntry)}
+              >
+                Delete
+              </Button>
               <Button variant="secondary" onClick={() => setShowTimeDetailsModal(false)}>Close</Button>
               <Button>Edit Entry</Button>
             </div>
@@ -738,6 +1042,12 @@ export default function PracticePage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
+              <Button
+                variant="danger"
+                onClick={() => handleDeleteTask(selectedTask)}
+              >
+                Delete
+              </Button>
               <Button variant="secondary" onClick={() => setShowTaskDetailsModal(false)}>Close</Button>
               <Button>Edit Task</Button>
             </div>
@@ -943,6 +1253,18 @@ export default function PracticePage() {
           </div>
         </form>
       </Modal>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="Delete"
+        variant="danger"
+        loading={confirmDialog.loading}
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate')
     const userId = searchParams.get('user')
 
+    const pagination = parsePaginationParams(request, 'date')
+
     const where: Record<string, unknown> = {
       user: { firmId: user.firmId },
     }
@@ -25,16 +28,21 @@ export async function GET(request: NextRequest) {
     }
     if (userId) where.userId = userId
 
-    const entries = await prisma.timeEntry.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      include: {
-        user: { select: { firstName: true, lastName: true } },
-        engagement: { include: { client: true } },
-      },
-    })
+    const [entries, total] = await Promise.all([
+      prisma.timeEntry.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          user: { select: { firstName: true, lastName: true } },
+          engagement: { include: { client: true } },
+        },
+      }),
+      prisma.timeEntry.count({ where }),
+    ])
 
-    return NextResponse.json(entries)
+    return NextResponse.json(buildPaginatedResponse(entries, total, pagination))
   } catch (error) {
     console.error('Get time entries error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

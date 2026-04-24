@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     // Get clients
     const clients = await prisma.client.findMany({
       where,
-      orderBy: { name: 'asc' },
+      orderBy: { lastName: 'asc' },
     })
 
     // Get firm name
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const filename = `clients-${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
     const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,

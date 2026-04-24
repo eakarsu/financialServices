@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const transactions = await prisma.transaction.findMany({
       where,
       include: {
-        client: { select: { name: true } },
+        client: { select: { firstName: true, lastName: true, businessName: true } },
       },
       orderBy: { date: 'desc' },
     })
@@ -47,9 +47,9 @@ export async function POST(request: NextRequest) {
     if (clientId) {
       const client = await prisma.client.findUnique({
         where: { id: clientId },
-        select: { name: true },
+        select: { firstName: true, lastName: true, businessName: true },
       })
-      clientName = client?.name
+      clientName = client?.businessName || `${client?.firstName} ${client?.lastName}`
     }
 
     // Build date range string
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     const filename = `transactions-${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
     const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,

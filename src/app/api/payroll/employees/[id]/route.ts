@@ -18,10 +18,12 @@ export async function GET(
       where: { id },
       include: {
         client: true,
-        paystubs: {
+        payrollItems: {
           take: 10,
-          orderBy: { payDate: 'desc' },
+          orderBy: { createdAt: 'desc' },
+          include: { payrollRun: true },
         },
+        taxForms: true,
       },
     })
 
@@ -60,8 +62,6 @@ export async function PUT(
         payType: data.payType,
         payRate: data.payRate,
         payFrequency: data.payFrequency,
-        department: data.department,
-        position: data.position,
         hireDate: data.hireDate ? new Date(data.hireDate) : undefined,
         terminationDate: data.terminationDate ? new Date(data.terminationDate) : null,
       },
@@ -86,8 +86,8 @@ export async function DELETE(
 
     const { id } = await params
 
-    // Check if there are paystubs associated with this employee
-    const paystubCount = await prisma.paystub.count({
+    // Check if there are payroll items associated with this employee
+    const paystubCount = await prisma.payrollItem.count({
       where: { employeeId: id },
     })
 

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const filename = `payroll-${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
     const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,

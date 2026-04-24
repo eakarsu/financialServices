@@ -69,6 +69,7 @@ async function main() {
         password: hashedPassword,
         role: user.role as 'ADMIN' | 'STAFF' | 'CLIENT',
         firmId: firm.id,
+        emailVerified: true,
       },
     })
   }
@@ -164,7 +165,7 @@ async function main() {
   }
 
   // Create 20+ bank accounts
-  const bankAccounts = [
+  const bankAccounts: Array<{ id: string; name: string; accountType: 'CHECKING' | 'SAVINGS' | 'CREDIT_CARD' | 'LOAN' | 'INVESTMENT' | 'OTHER'; institution: string; balance: number; clientId: string }> = [
     { id: 'bank-001', name: 'Acme Business Checking', accountType: 'CHECKING', institution: 'Chase Bank', balance: 45678.90, clientId: 'client-001' },
     { id: 'bank-002', name: 'Acme Business Savings', accountType: 'SAVINGS', institution: 'Chase Bank', balance: 125000.00, clientId: 'client-001' },
     { id: 'bank-003', name: 'Acme Credit Card', accountType: 'CREDIT_CARD', institution: 'American Express', balance: -5432.10, clientId: 'client-001' },
@@ -421,7 +422,7 @@ async function main() {
       create: {
         ...task,
         priority: task.priority as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-        status: task.status as 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED',
+        status: task.status as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED' | 'CANCELLED',
         assignedToId: admin?.id,
       },
     })
@@ -487,7 +488,7 @@ async function main() {
       update: {},
       create: {
         ...inv,
-        status: inv.status as 'DRAFT' | 'SENT' | 'PAID' | 'PARTIAL' | 'OVERDUE' | 'CANCELLED',
+        status: inv.status as 'DRAFT' | 'SENT' | 'VIEWED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'VOID',
         firmId: firm.id,
         createdById: 'user-001',
       },
@@ -524,6 +525,7 @@ async function main() {
       update: {},
       create: {
         ...doc,
+        type: doc.type as 'TAX_RETURN' | 'FINANCIAL_STATEMENT' | 'BANK_STATEMENT' | 'RECEIPT' | 'INVOICE' | 'CONTRACT' | 'ENGAGEMENT_LETTER' | 'W2' | 'W9' | 'FORM_1099' | 'K1' | 'OTHER',
         status: doc.status as 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'SIGNED' | 'ARCHIVED',
         fileUrl: `/documents/${doc.id}`,
         uploadedById: 'user-001',
@@ -681,15 +683,112 @@ async function main() {
     })
   }
 
+  // Create 15+ engagements
+  const engagements = [
+    { id: 'eng-001', name: '2024 Tax Preparation', type: 'TAX_PREPARATION', status: 'ACTIVE', startDate: new Date('2024-01-15'), clientId: 'client-001', budgetHours: 40, budgetAmount: 7000 },
+    { id: 'eng-002', name: 'Monthly Bookkeeping', type: 'BOOKKEEPING', status: 'ACTIVE', startDate: new Date('2024-01-01'), clientId: 'client-001', budgetHours: 120, budgetAmount: 18000 },
+    { id: 'eng-003', name: '2024 Individual Tax', type: 'TAX_PREPARATION', status: 'ACTIVE', startDate: new Date('2024-02-01'), clientId: 'client-002', budgetHours: 15, budgetAmount: 2625 },
+    { id: 'eng-004', name: 'Tech Startup Audit', type: 'AUDIT', status: 'ACTIVE', startDate: new Date('2024-06-01'), clientId: 'client-003', budgetHours: 80, budgetAmount: 16000 },
+    { id: 'eng-005', name: 'Quarterly Bookkeeping', type: 'BOOKKEEPING', status: 'ACTIVE', startDate: new Date('2024-01-01'), clientId: 'client-005', budgetHours: 60, budgetAmount: 7200 },
+    { id: 'eng-006', name: 'Payroll Services', type: 'PAYROLL', status: 'ACTIVE', startDate: new Date('2024-01-01'), clientId: 'client-007', budgetHours: 24, budgetAmount: 3000 },
+    { id: 'eng-007', name: 'Tax Planning', type: 'CONSULTING', status: 'ACTIVE', startDate: new Date('2024-03-01'), clientId: 'client-008', budgetHours: 20, budgetAmount: 4000 },
+    { id: 'eng-008', name: 'Financial Planning', type: 'FINANCIAL_PLANNING', status: 'ACTIVE', startDate: new Date('2024-04-01'), clientId: 'client-010', budgetHours: 30, budgetAmount: 6000 },
+    { id: 'eng-009', name: 'Medical Practice Bookkeeping', type: 'BOOKKEEPING', status: 'ACTIVE', startDate: new Date('2024-01-01'), clientId: 'client-013', budgetHours: 100, budgetAmount: 15000 },
+    { id: 'eng-010', name: 'Tax Preparation 2024', type: 'TAX_PREPARATION', status: 'ACTIVE', startDate: new Date('2024-02-15'), clientId: 'client-012', budgetHours: 12, budgetAmount: 2100 },
+    { id: 'eng-011', name: 'Business Consulting', type: 'CONSULTING', status: 'ACTIVE', startDate: new Date('2024-05-01'), clientId: 'client-018', budgetHours: 40, budgetAmount: 10000 },
+    { id: 'eng-012', name: 'Payroll Setup', type: 'PAYROLL', status: 'COMPLETED', startDate: new Date('2024-01-15'), endDate: new Date('2024-03-01'), clientId: 'client-020', budgetHours: 16, budgetAmount: 2400 },
+    { id: 'eng-013', name: '2024 Tax Filing', type: 'TAX_PREPARATION', status: 'ACTIVE', startDate: new Date('2024-01-10'), clientId: 'client-006', budgetHours: 10, budgetAmount: 1750 },
+    { id: 'eng-014', name: 'Annual Bookkeeping', type: 'BOOKKEEPING', status: 'ACTIVE', startDate: new Date('2024-01-01'), clientId: 'client-017', budgetHours: 48, budgetAmount: 6000 },
+    { id: 'eng-015', name: '2024 Tax Preparation', type: 'TAX_PREPARATION', status: 'ACTIVE', startDate: new Date('2024-02-01'), clientId: 'client-014', budgetHours: 8, budgetAmount: 1400 },
+    { id: 'eng-016', name: 'Year-End Review', type: 'CONSULTING', status: 'ACTIVE', startDate: new Date('2024-11-01'), clientId: 'client-003', budgetHours: 20, budgetAmount: 5000 },
+  ]
+
+  for (const eng of engagements) {
+    await prisma.engagement.upsert({
+      where: { id: eng.id },
+      update: {},
+      create: {
+        ...eng,
+        type: eng.type as 'TAX_PREPARATION' | 'BOOKKEEPING' | 'PAYROLL' | 'AUDIT' | 'CONSULTING' | 'FINANCIAL_PLANNING' | 'OTHER',
+        status: eng.status as 'DRAFT' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED',
+      },
+    })
+  }
+
+  // Create 15+ notes
+  const notes = [
+    { id: 'note-001', content: 'Client requested extension for 2024 tax return. Need to file Form 4868 by April 15.', clientId: 'client-001', createdById: 'user-001', isPinned: true },
+    { id: 'note-002', content: 'Discussed year-end tax planning strategies. Client interested in maximizing retirement contributions.', clientId: 'client-002', createdById: 'user-001' },
+    { id: 'note-003', content: 'Tech Startup raised Series B funding. Need to review equity compensation implications.', clientId: 'client-003', createdById: 'user-002', isPinned: true },
+    { id: 'note-004', content: 'Prospect meeting scheduled for next week. Interested in full-service bookkeeping.', clientId: 'client-004', createdById: 'user-001' },
+    { id: 'note-005', content: 'Green Gardens expanding operations. May need to upgrade from LLC to S-Corp.', clientId: 'client-005', createdById: 'user-003' },
+    { id: 'note-006', content: 'Michael Chen considering purchasing rental property. Tax implications discussion needed.', clientId: 'client-006', createdById: 'user-001' },
+    { id: 'note-007', content: 'Deli owner wants to add catering service line. Need new revenue tracking.', clientId: 'client-007', createdById: 'user-004' },
+    { id: 'note-008', content: 'Import duties increased Q4. Client needs to review product pricing strategy.', clientId: 'client-008', createdById: 'user-002' },
+    { id: 'note-009', content: 'Jennifer Martinez got married. Need to update filing status for next year.', clientId: 'client-009', createdById: 'user-001' },
+    { id: 'note-010', content: 'Property management company considering 1031 exchange for downtown property.', clientId: 'client-010', createdById: 'user-003', isPinned: true },
+    { id: 'note-011', content: 'David Kim account inactive since Q2. Send reactivation outreach email.', clientId: 'client-011', createdById: 'user-001' },
+    { id: 'note-012', content: 'Creative Design Studio hired 3 new contractors. Need 1099 tracking setup.', clientId: 'client-012', createdById: 'user-005' },
+    { id: 'note-013', content: 'Medical group added new physician partner. Update partnership agreement and allocation.', clientId: 'client-013', createdById: 'user-002', isPinned: true },
+    { id: 'note-014', content: 'Amanda moving to Texas. No state income tax implications starting next year.', clientId: 'client-014', createdById: 'user-001' },
+    { id: 'note-015', content: 'Future Robotics Corp seeking R&D tax credits. Schedule consultation with tax specialist.', clientId: 'client-015', createdById: 'user-006' },
+    { id: 'note-016', content: 'Elite Consulting had record quarter. May need estimated tax adjustment.', clientId: 'client-018', createdById: 'user-003' },
+  ]
+
+  for (const note of notes) {
+    await prisma.note.upsert({
+      where: { id: note.id },
+      update: {},
+      create: {
+        ...note,
+        isPinned: note.isPinned || false,
+      },
+    })
+  }
+
+  // Create 15+ client contacts
+  const clientContacts = [
+    { id: 'contact-001', firstName: 'Tom', lastName: 'Acme', title: 'CFO', email: 'tom@acmecorp.com', phone: '(555) 111-0001', isPrimary: true, clientId: 'client-001' },
+    { id: 'contact-002', firstName: 'Sandra', lastName: 'Acme', title: 'CEO', email: 'sandra@acmecorp.com', phone: '(555) 111-0002', clientId: 'client-001' },
+    { id: 'contact-003', firstName: 'Jessica', lastName: 'Turner', title: 'CTO', email: 'jess@techstartup.io', phone: '(555) 555-0001', isPrimary: true, clientId: 'client-003' },
+    { id: 'contact-004', firstName: 'Brian', lastName: 'Lee', title: 'Controller', email: 'brian@techstartup.io', phone: '(555) 555-0002', clientId: 'client-003' },
+    { id: 'contact-005', firstName: 'Carmen', lastName: 'Verde', title: 'Owner', email: 'carmen@greengardens.com', phone: '(555) 123-0001', isPrimary: true, clientId: 'client-005' },
+    { id: 'contact-006', firstName: 'Marco', lastName: 'DeliOwner', title: 'Owner', email: 'marco@downtowndeli.com', phone: '(555) 345-0001', isPrimary: true, clientId: 'client-007' },
+    { id: 'contact-007', firstName: 'Yuki', lastName: 'Tanaka', title: 'Import Manager', email: 'yuki@pacificimports.com', phone: '(555) 456-0001', isPrimary: true, clientId: 'client-008' },
+    { id: 'contact-008', firstName: 'Henry', lastName: 'Pacific', title: 'President', email: 'henry@pacificimports.com', phone: '(555) 456-0002', clientId: 'client-008' },
+    { id: 'contact-009', firstName: 'George', lastName: 'Mountain', title: 'Managing Partner', email: 'george@mvproperties.com', phone: '(555) 678-0001', isPrimary: true, clientId: 'client-010' },
+    { id: 'contact-010', firstName: 'Helen', lastName: 'Creek', title: 'Bookkeeper', email: 'helen@mvproperties.com', phone: '(555) 678-0002', clientId: 'client-010' },
+    { id: 'contact-011', firstName: 'Dr. James', lastName: 'Riverside', title: 'Managing Partner', email: 'drjames@riversidemedical.com', phone: '(555) 901-0001', isPrimary: true, clientId: 'client-013' },
+    { id: 'contact-012', firstName: 'Nancy', lastName: 'Billing', title: 'Billing Manager', email: 'nancy@riversidemedical.com', phone: '(555) 901-0002', clientId: 'client-013' },
+    { id: 'contact-013', firstName: 'Viktor', lastName: 'Robot', title: 'Founder', email: 'viktor@futurerobotics.io', phone: '(555) 234-0001', isPrimary: true, clientId: 'client-015' },
+    { id: 'contact-014', firstName: 'Diana', lastName: 'Baker', title: 'Owner', email: 'diana@sunshinebakery.com', phone: '(555) 456-0003', isPrimary: true, clientId: 'client-017' },
+    { id: 'contact-015', firstName: 'Richard', lastName: 'Elite', title: 'Managing Director', email: 'richard@eliteconsulting.com', phone: '(555) 567-0001', isPrimary: true, clientId: 'client-018' },
+    { id: 'contact-016', firstName: 'Frank', lastName: 'Northern', title: 'Operations Director', email: 'frank@northernlogistics.com', phone: '(555) 789-0001', isPrimary: true, clientId: 'client-020' },
+  ]
+
+  for (const contact of clientContacts) {
+    await prisma.clientContact.upsert({
+      where: { id: contact.id },
+      update: {},
+      create: {
+        ...contact,
+        isPrimary: contact.isPrimary || false,
+      },
+    })
+  }
+
   console.log('')
   console.log('=========================================')
   console.log('Seed data created successfully!')
   console.log('=========================================')
   console.log('')
   console.log('Data created:')
-  console.log('  - 16 Users')
+  console.log('  - 16 Users (emailVerified)')
   console.log('  - 40 Chart of Accounts')
   console.log('  - 20 Clients')
+  console.log('  - 16 Client Contacts')
+  console.log('  - 16 Engagements')
+  console.log('  - 16 Notes')
   console.log('  - 20 Bank Accounts')
   console.log('  - 30 Transactions')
   console.log('  - 20 Tax Returns')

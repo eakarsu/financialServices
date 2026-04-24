@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,6 +17,8 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
 
+    const pagination = parsePaginationParams(request, 'date')
+
     const where: Record<string, unknown> = {
       client: { firmId: user.firmId },
     }
@@ -29,19 +32,23 @@ export async function GET(request: NextRequest) {
       if (endDate) (where.date as Record<string, Date>).lte = new Date(endDate)
     }
 
-    const transactions = await prisma.transaction.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      include: {
-        client: true,
-        bankAccount: true,
-        category: true,
-        receipt: true,
-      },
-      take: 500,
-    })
+    const [transactions, total] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          client: true,
+          bankAccount: true,
+          category: true,
+          receipt: true,
+        },
+      }),
+      prisma.transaction.count({ where }),
+    ])
 
-    return NextResponse.json(transactions)
+    return NextResponse.json(buildPaginatedResponse(transactions, total, pagination))
   } catch (error) {
     console.error('Get transactions error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

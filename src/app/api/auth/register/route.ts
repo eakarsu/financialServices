@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto'
 import prisma from '@/lib/prisma'
 import { hashPassword, generateToken, setAuthCookie } from '@/lib/auth'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { parseAndValidateBody } from '@/lib/api-helpers'
+import { registerSchema } from '@/lib/validation'
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, firstName, lastName, firmName } = await request.json()
-
-    if (!email || !password || !firstName || !lastName || !firmName) {
+    const ip = request.headers.get('x-forwarded-for') || 'unknown'
+    const rateLimit = checkRateLimit(`register:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 })
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: 'All fields are required' },
-        { status: 400 }
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429 }
       )
     }
+
+    const parsed = await parseAndValidateBody(request, registerSchema)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
+    }
+
+    const { email, password, firstName, lastName, firmName } = parsed.data
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -25,6 +36,8 @@ export async function POST(request: NextRequest) {
     }
 
     const hashedPassword = await hashPassword(password)
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex')
+    const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
 
     const firm = await prisma.firm.create({
       data: {
@@ -41,6 +54,9 @@ export async function POST(request: NextRequest) {
         lastName,
         role: 'ADMIN',
         firmId: firm.id,
+        emailVerified: false,
+        emailVerificationToken,
+        emailVerificationExpiry,
       },
       include: { firm: true },
     })
@@ -82,6 +98,10 @@ export async function POST(request: NextRequest) {
         firmId: firm.id,
       },
     })
+
+    // In production, send verification email
+    // await sendEmail({ to: email, subject: 'Verify Email', body: `Verify: /verify-email?token=${emailVerificationToken}` })
+    console.log(`Email verification token for ${email}: ${emailVerificationToken}`)
 
     const token = generateToken({
       userId: user.id,

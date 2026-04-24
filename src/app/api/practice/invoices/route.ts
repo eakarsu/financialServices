@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
 import { generateInvoiceNumber } from '@/lib/utils'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,23 +15,30 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const clientId = searchParams.get('client')
 
+    const pagination = parsePaginationParams(request, 'createdAt')
+
     const where: Record<string, unknown> = { firmId: user.firmId }
 
     if (status && status !== 'all') where.status = status
     if (clientId) where.clientId = clientId
 
-    const invoices = await prisma.invoice.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        client: true,
-        createdBy: { select: { firstName: true, lastName: true } },
-        lineItems: true,
-        payments: true,
-      },
-    })
+    const [invoices, total] = await Promise.all([
+      prisma.invoice.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          client: true,
+          createdBy: { select: { firstName: true, lastName: true } },
+          lineItems: true,
+          payments: true,
+        },
+      }),
+      prisma.invoice.count({ where }),
+    ])
 
-    return NextResponse.json(invoices)
+    return NextResponse.json(buildPaginatedResponse(invoices, total, pagination))
   } catch (error) {
     console.error('Get invoices error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -46,7 +54,6 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json()
 
-    // Get firm settings for invoice number
     const settings = await prisma.firmSettings.findFirst({
       where: { firmId: user.firmId },
     })
@@ -56,7 +63,6 @@ export async function POST(request: NextRequest) {
       settings?.invoiceNextNumber || 1001
     )
 
-    // Calculate totals
     const subtotal = data.lineItems.reduce(
       (sum: number, item: { quantity: number; rate: number }) => sum + (item.quantity * item.rate),
       0
@@ -95,7 +101,6 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Update next invoice number
     if (settings) {
       await prisma.firmSettings.update({
         where: { id: settings.id },

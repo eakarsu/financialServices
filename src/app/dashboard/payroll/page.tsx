@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Plus, Users, DollarSign, Calendar, FileText, Play, CheckCircle, Clock,
-  Download, CreditCard
+  Download, CreditCard, Edit, Trash2
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -15,6 +15,11 @@ import Modal from '@/components/ui/Modal'
 import ExportButton from '@/components/ExportButton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
+import { TableSkeleton } from '@/components/ui/Skeleton'
+import Pagination from '@/components/ui/Pagination'
+import SortableHeader from '@/components/ui/SortableHeader'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
 
 interface Employee {
@@ -65,8 +70,19 @@ interface ReportTemplate {
   category: string
 }
 
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
+}
+
 export default function PayrollPage() {
   const router = useRouter()
+  const { toast } = useToast()
+
   const [employees, setEmployees] = useState<Employee[]>([])
   const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -84,6 +100,41 @@ export default function PayrollPage() {
   const [selectedPayrollRun, setSelectedPayrollRun] = useState<PayrollRun | null>(null)
   const [selectedReportTemplate, setSelectedReportTemplate] = useState<ReportTemplate | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Pagination state for employees
+  const [employeePage, setEmployeePage] = useState(1)
+  const [employeeLimit, setEmployeeLimit] = useState(20)
+  const [employeeSortBy, setEmployeeSortBy] = useState('lastName')
+  const [employeeSortOrder, setEmployeeSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [employeePagination, setEmployeePagination] = useState<PaginationInfo>({
+    page: 1, limit: 20, total: 0, totalPages: 0, hasNext: false, hasPrev: false,
+  })
+
+  // Pagination state for payroll runs
+  const [runPage, setRunPage] = useState(1)
+  const [runLimit, setRunLimit] = useState(20)
+  const [runSortBy, setRunSortBy] = useState('payDate')
+  const [runSortOrder, setRunSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [runPagination, setRunPagination] = useState<PaginationInfo>({
+    page: 1, limit: 20, total: 0, totalPages: 0, hasNext: false, hasPrev: false,
+  })
+
+  // Delete state
+  const [deleteEmployeeTarget, setDeleteEmployeeTarget] = useState<Employee | null>(null)
+  const [deleteRunTarget, setDeleteRunTarget] = useState<PayrollRun | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  // Edit employee state
+  const [editingEmployee, setEditingEmployee] = useState(false)
+  const [editEmployeeForm, setEditEmployeeForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    payType: 'HOURLY',
+    payRate: '',
+    payFrequency: 'BI_WEEKLY',
+    status: 'ACTIVE',
+  })
 
   const [employeeForm, setEmployeeForm] = useState({
     clientId: '',
@@ -103,38 +154,105 @@ export default function PayrollPage() {
     payDate: '',
   })
 
-  useEffect(() => {
-    fetchData()
-  }, [clientFilter])
+  const handleSort = (
+    key: string,
+    setSort: Function,
+    setOrder: Function,
+    currentSort: string,
+    currentOrder: string
+  ) => {
+    if (currentSort === key) {
+      setOrder(currentOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSort(key)
+      setOrder('asc')
+    }
+  }
 
-  const fetchData = async () => {
+  const fetchEmployees = useCallback(async (page = employeePage) => {
     try {
       const params = new URLSearchParams()
       if (clientFilter !== 'all') params.set('client', clientFilter)
+      if (employeeStatusFilter !== 'all') params.set('status', employeeStatusFilter)
+      params.set('page', String(page))
+      params.set('limit', String(employeeLimit))
+      params.set('sortBy', employeeSortBy)
+      params.set('sortOrder', employeeSortOrder)
 
-      const [empRes, runRes, clientRes, reportsRes] = await Promise.all([
-        fetch(`/api/payroll/employees?${params}`),
-        fetch(`/api/payroll/runs?${params}`),
+      const res = await fetch(`/api/payroll/employees?${params}`)
+      const data = await res.json()
+      setEmployees(data.data)
+      setEmployeePagination(data.pagination)
+    } catch {
+      toast('Error fetching employees', 'error')
+    }
+  }, [clientFilter, employeeStatusFilter, employeeLimit, employeeSortBy, employeeSortOrder, employeePage, toast])
+
+  const fetchPayrollRuns = useCallback(async (page = runPage) => {
+    try {
+      const params = new URLSearchParams()
+      if (clientFilter !== 'all') params.set('client', clientFilter)
+      params.set('page', String(page))
+      params.set('limit', String(runLimit))
+      params.set('sortBy', runSortBy)
+      params.set('sortOrder', runSortOrder)
+
+      const res = await fetch(`/api/payroll/runs?${params}`)
+      const data = await res.json()
+      setPayrollRuns(data.data)
+      setRunPagination(data.pagination)
+    } catch {
+      toast('Error fetching payroll runs', 'error')
+    }
+  }, [clientFilter, runLimit, runSortBy, runSortOrder, runPage, toast])
+
+  const fetchSupportData = useCallback(async () => {
+    try {
+      const [clientRes, reportsRes] = await Promise.all([
         fetch('/api/clients'),
         fetch('/api/templates/reports?category=PAYROLL'),
       ])
-
-      setEmployees(await empRes.json())
-      setPayrollRuns(await runRes.json())
-      setClients(await clientRes.json())
+      const clientsData = await clientRes.json()
+      setClients(clientsData.data || clientsData)
       setReportTemplates(await reportsRes.json())
-    } catch (error) {
-      console.error('Error fetching data:', error)
+    } catch {
+      toast('Error fetching support data', 'error')
+    }
+  }, [toast])
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      await Promise.all([
+        fetchEmployees(1),
+        fetchPayrollRuns(1),
+        fetchSupportData(),
+      ])
     } finally {
       setLoading(false)
     }
-  }
+  }, [fetchEmployees, fetchPayrollRuns, fetchSupportData])
+
+  useEffect(() => {
+    fetchData()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientFilter])
+
+  useEffect(() => {
+    fetchEmployees(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeSortBy, employeeSortOrder, employeeStatusFilter])
+
+  useEffect(() => {
+    fetchPayrollRuns(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runSortBy, runSortOrder])
 
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/payroll/employees', {
+      const res = await fetch('/api/payroll/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,22 +260,100 @@ export default function PayrollPage() {
           payRate: parseFloat(employeeForm.payRate),
         }),
       })
-      setShowEmployeeModal(false)
-      setEmployeeForm({
-        clientId: '',
-        firstName: '',
-        lastName: '',
-        email: '',
-        payType: 'HOURLY',
-        payRate: '',
-        payFrequency: 'BI_WEEKLY',
-        hireDate: new Date().toISOString().split('T')[0],
-      })
-      fetchData()
-    } catch (error) {
-      console.error('Error adding employee:', error)
+      if (res.ok) {
+        setShowEmployeeModal(false)
+        setEmployeeForm({
+          clientId: '',
+          firstName: '',
+          lastName: '',
+          email: '',
+          payType: 'HOURLY',
+          payRate: '',
+          payFrequency: 'BI_WEEKLY',
+          hireDate: new Date().toISOString().split('T')[0],
+        })
+        fetchEmployees(1)
+        toast('Employee added successfully', 'success')
+      } else {
+        const data = await res.json()
+        toast(data.error || 'Error adding employee', 'error')
+      }
+    } catch {
+      toast('Error adding employee', 'error')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleEditEmployee = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedEmployee) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/payroll/employees/${selectedEmployee.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editEmployeeForm,
+          payRate: parseFloat(editEmployeeForm.payRate),
+        }),
+      })
+      if (res.ok) {
+        setEditingEmployee(false)
+        setShowEmployeeDetailsModal(false)
+        setSelectedEmployee(null)
+        fetchEmployees()
+        toast('Employee updated successfully', 'success')
+      } else {
+        const data = await res.json()
+        toast(data.error || 'Error updating employee', 'error')
+      }
+    } catch {
+      toast('Error updating employee', 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteEmployee = async () => {
+    if (!deleteEmployeeTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/payroll/employees/${deleteEmployeeTarget.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Employee deleted successfully', 'success')
+        setShowEmployeeDetailsModal(false)
+        setSelectedEmployee(null)
+        fetchEmployees()
+      } else {
+        toast('Error deleting employee', 'error')
+      }
+    } catch {
+      toast('Error deleting employee', 'error')
+    } finally {
+      setDeleting(false)
+      setDeleteEmployeeTarget(null)
+    }
+  }
+
+  const handleDeleteRun = async () => {
+    if (!deleteRunTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/payroll/runs/${deleteRunTarget.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Payroll run deleted successfully', 'success')
+        setShowPayrollDetailsModal(false)
+        setSelectedPayrollRun(null)
+        fetchPayrollRuns()
+      } else {
+        toast('Error deleting payroll run', 'error')
+      }
+    } catch {
+      toast('Error deleting payroll run', 'error')
+    } finally {
+      setDeleting(false)
+      setDeleteRunTarget(null)
     }
   }
 
@@ -167,7 +363,7 @@ export default function PayrollPage() {
     try {
       const clientEmployees = employees.filter(emp => emp.client.id === payrollForm.clientId && emp.status === 'ACTIVE')
 
-      await fetch('/api/payroll/runs', {
+      const res = await fetch('/api/payroll/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,16 +376,22 @@ export default function PayrollPage() {
           })),
         }),
       })
-      setShowPayrollModal(false)
-      setPayrollForm({
-        clientId: '',
-        payPeriodStart: '',
-        payPeriodEnd: '',
-        payDate: '',
-      })
-      fetchData()
-    } catch (error) {
-      console.error('Error creating payroll:', error)
+      if (res.ok) {
+        setShowPayrollModal(false)
+        setPayrollForm({
+          clientId: '',
+          payPeriodStart: '',
+          payPeriodEnd: '',
+          payDate: '',
+        })
+        fetchPayrollRuns(1)
+        toast('Payroll run created successfully', 'success')
+      } else {
+        const data = await res.json()
+        toast(data.error || 'Error creating payroll run', 'error')
+      }
+    } catch {
+      toast('Error creating payroll run', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -200,14 +402,9 @@ export default function PayrollPage() {
     return client.businessName || `${client.firstName} ${client.lastName}`
   }
 
-  const totalEmployees = employees.length
+  const totalEmployees = employeePagination.total
   const activeEmployees = employees.filter(e => e.status === 'ACTIVE').length
   const totalPayroll = payrollRuns.reduce((sum, run) => sum + parseDecimal(run.totalGross), 0)
-
-  // Filter employees based on status filter
-  const filteredEmployees = employeeStatusFilter === 'all'
-    ? employees
-    : employees.filter(e => e.status === employeeStatusFilter)
 
   return (
     <div className="space-y-6">
@@ -240,9 +437,7 @@ export default function PayrollPage() {
           variant="bordered"
           className="cursor-pointer hover:shadow-md transition-shadow"
           onClick={() => {
-            console.log('Total Employees clicked - current activeTab:', activeTab)
             setActiveTab('employees')
-            console.log('After setActiveTab called')
             setEmployeeStatusFilter('all')
           }}
         >
@@ -260,9 +455,7 @@ export default function PayrollPage() {
           variant="bordered"
           className="cursor-pointer hover:shadow-md transition-shadow"
           onClick={() => {
-            console.log('Active clicked - current activeTab:', activeTab)
             setActiveTab('employees')
-            console.log('After setActiveTab called')
             setEmployeeStatusFilter('ACTIVE')
           }}
         >
@@ -302,7 +495,7 @@ export default function PayrollPage() {
             </div>
             <div>
               <p className="text-sm text-secondary-500">Pay Runs</p>
-              <p className="text-2xl font-bold">{payrollRuns.length}</p>
+              <p className="text-2xl font-bold">{runPagination.total}</p>
             </div>
           </CardContent>
         </Card>
@@ -329,174 +522,275 @@ export default function PayrollPage() {
           </div>
 
           <TabsContent value="employees" className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Pay Type</TableHead>
-                  <TableHead>Pay Rate</TableHead>
-                  <TableHead>Frequency</TableHead>
-                  <TableHead>Hire Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">Loading...</TableCell>
-                  </TableRow>
-                ) : filteredEmployees.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
-                      No employees found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredEmployees.map((emp) => (
-                    <TableRow
-                      key={emp.id}
-                      onClick={() => {
-                        setSelectedEmployee(emp)
-                        setShowEmployeeDetailsModal(true)
+            {loading ? (
+              <TableSkeleton rows={8} cols={7} />
+            ) : (
+              <>
+                <Table>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Employee"
+                        sortKey="lastName"
+                        currentSortBy={employeeSortBy}
+                        currentSortOrder={employeeSortOrder}
+                        onSort={(key) => handleSort(key, setEmployeeSortBy, setEmployeeSortOrder, employeeSortBy, employeeSortOrder)}
+                      />
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Client</th>
+                      <SortableHeader
+                        label="Status"
+                        sortKey="status"
+                        currentSortBy={employeeSortBy}
+                        currentSortOrder={employeeSortOrder}
+                        onSort={(key) => handleSort(key, setEmployeeSortBy, setEmployeeSortOrder, employeeSortBy, employeeSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Pay Type"
+                        sortKey="payType"
+                        currentSortBy={employeeSortBy}
+                        currentSortOrder={employeeSortOrder}
+                        onSort={(key) => handleSort(key, setEmployeeSortBy, setEmployeeSortOrder, employeeSortBy, employeeSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Pay Rate"
+                        sortKey="payRate"
+                        currentSortBy={employeeSortBy}
+                        currentSortOrder={employeeSortOrder}
+                        onSort={(key) => handleSort(key, setEmployeeSortBy, setEmployeeSortOrder, employeeSortBy, employeeSortOrder)}
+                      />
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Frequency</th>
+                      <SortableHeader
+                        label="Hire Date"
+                        sortKey="hireDate"
+                        currentSortBy={employeeSortBy}
+                        currentSortOrder={employeeSortOrder}
+                        onSort={(key) => handleSort(key, setEmployeeSortBy, setEmployeeSortOrder, employeeSortBy, employeeSortOrder)}
+                      />
+                    </tr>
+                  </thead>
+                  <TableBody>
+                    {employees.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
+                          No employees found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      employees.map((emp) => (
+                        <TableRow
+                          key={emp.id}
+                          onClick={() => {
+                            setSelectedEmployee(emp)
+                            setEditingEmployee(false)
+                            setShowEmployeeDetailsModal(true)
+                          }}
+                          className="cursor-pointer hover:bg-secondary-50"
+                        >
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{emp.firstName} {emp.lastName}</p>
+                              <p className="text-xs text-secondary-500">{emp.employeeNumber}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getClientName(emp.client)}</TableCell>
+                          <TableCell>
+                            <Badge variant={emp.status === 'ACTIVE' ? 'success' : 'default'}>
+                              {emp.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{emp.payType}</TableCell>
+                          <TableCell>{formatCurrency(parseDecimal(emp.payRate))}/hr</TableCell>
+                          <TableCell>{emp.payFrequency.replace('_', ' ')}</TableCell>
+                          <TableCell>{formatDate(emp.hireDate)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                {employeePagination.total > 0 && (
+                  <div className="border-t border-secondary-200">
+                    <Pagination
+                      page={employeePagination.page}
+                      totalPages={employeePagination.totalPages}
+                      total={employeePagination.total}
+                      limit={employeePagination.limit}
+                      onPageChange={(p) => { setEmployeePage(p); fetchEmployees(p) }}
+                      onLimitChange={(l) => {
+                        setEmployeeLimit(l)
+                        setEmployeePagination(prev => ({ ...prev, limit: l }))
+                        fetchEmployees(1)
                       }}
-                      className="cursor-pointer hover:bg-secondary-50"
-                    >
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{emp.firstName} {emp.lastName}</p>
-                          <p className="text-xs text-secondary-500">{emp.employeeNumber}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getClientName(emp.client)}</TableCell>
-                      <TableCell>
-                        <Badge variant={emp.status === 'ACTIVE' ? 'success' : 'default'}>
-                          {emp.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{emp.payType}</TableCell>
-                      <TableCell>{formatCurrency(parseDecimal(emp.payRate))}/hr</TableCell>
-                      <TableCell>{emp.payFrequency.replace('_', ' ')}</TableCell>
-                      <TableCell>{formatDate(emp.hireDate)}</TableCell>
-                    </TableRow>
-                  ))
+                    />
+                  </div>
                 )}
-              </TableBody>
-            </Table>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="payroll" className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pay Period</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Pay Date</TableHead>
-                  <TableHead>Employees</TableHead>
-                  <TableHead>Gross Pay</TableHead>
-                  <TableHead>Net Pay</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">Loading...</TableCell>
-                  </TableRow>
-                ) : payrollRuns.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-secondary-500">
-                      No payroll runs found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  payrollRuns.map((run) => (
-                    <TableRow
-                      key={run.id}
-                      onClick={() => {
-                        setSelectedPayrollRun(run)
-                        setShowPayrollDetailsModal(true)
+            {loading ? (
+              <TableSkeleton rows={8} cols={8} />
+            ) : (
+              <>
+                <Table>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Pay Period"
+                        sortKey="payPeriodStart"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Client</th>
+                      <SortableHeader
+                        label="Pay Date"
+                        sortKey="payDate"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Employees"
+                        sortKey="employeeCount"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Gross Pay"
+                        sortKey="totalGross"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Net Pay"
+                        sortKey="totalNet"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <SortableHeader
+                        label="Status"
+                        sortKey="status"
+                        currentSortBy={runSortBy}
+                        currentSortOrder={runSortOrder}
+                        onSort={(key) => handleSort(key, setRunSortBy, setRunSortOrder, runSortBy, runSortOrder)}
+                      />
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <TableBody>
+                    {payrollRuns.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-secondary-500">
+                          No payroll runs found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      payrollRuns.map((run) => (
+                        <TableRow
+                          key={run.id}
+                          onClick={() => {
+                            setSelectedPayrollRun(run)
+                            setShowPayrollDetailsModal(true)
+                          }}
+                          className="cursor-pointer hover:bg-secondary-50"
+                        >
+                          <TableCell>
+                            {formatDate(run.payPeriodStart)} - {formatDate(run.payPeriodEnd)}
+                          </TableCell>
+                          <TableCell>{getClientName(run.client)}</TableCell>
+                          <TableCell>{formatDate(run.payDate)}</TableCell>
+                          <TableCell>{run.employeeCount}</TableCell>
+                          <TableCell>{formatCurrency(parseDecimal(run.totalGross))}</TableCell>
+                          <TableCell>{formatCurrency(parseDecimal(run.totalNet))}</TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              run.status === 'COMPLETED' ? 'success' :
+                              run.status === 'PROCESSING' ? 'info' :
+                              run.status === 'APPROVED' ? 'success' : 'default'
+                            }>
+                              {run.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="p-1"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedPayrollRun(run)
+                                  setShowPayrollDetailsModal(true)
+                                }}
+                                title="View Report"
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="p-1"
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  try {
+                                    const response = await fetch('/api/reports/export/payroll', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        format: 'pdf',
+                                        startDate: run.payPeriodStart,
+                                        endDate: run.payPeriodEnd,
+                                      }),
+                                    })
+
+                                    if (!response.ok) {
+                                      throw new Error('Failed to generate report')
+                                    }
+
+                                    const blob = await response.blob()
+                                    const url = window.URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = `payroll-run-${formatDate(run.payPeriodStart)}.pdf`
+                                    a.click()
+                                    window.URL.revokeObjectURL(url)
+                                  } catch {
+                                    toast('Failed to download report. Please try again.', 'error')
+                                  }
+                                }}
+                                title="Download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                {runPagination.total > 0 && (
+                  <div className="border-t border-secondary-200">
+                    <Pagination
+                      page={runPagination.page}
+                      totalPages={runPagination.totalPages}
+                      total={runPagination.total}
+                      limit={runPagination.limit}
+                      onPageChange={(p) => { setRunPage(p); fetchPayrollRuns(p) }}
+                      onLimitChange={(l) => {
+                        setRunLimit(l)
+                        setRunPagination(prev => ({ ...prev, limit: l }))
+                        fetchPayrollRuns(1)
                       }}
-                      className="cursor-pointer hover:bg-secondary-50"
-                    >
-                      <TableCell>
-                        {formatDate(run.payPeriodStart)} - {formatDate(run.payPeriodEnd)}
-                      </TableCell>
-                      <TableCell>{getClientName(run.client)}</TableCell>
-                      <TableCell>{formatDate(run.payDate)}</TableCell>
-                      <TableCell>{run.employeeCount}</TableCell>
-                      <TableCell>{formatCurrency(parseDecimal(run.totalGross))}</TableCell>
-                      <TableCell>{formatCurrency(parseDecimal(run.totalNet))}</TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          run.status === 'COMPLETED' ? 'success' :
-                          run.status === 'PROCESSING' ? 'info' :
-                          run.status === 'APPROVED' ? 'success' : 'default'
-                        }>
-                          {run.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedPayrollRun(run)
-                              setShowPayrollDetailsModal(true)
-                            }}
-                            title="View Report"
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1"
-                            onClick={async (e) => {
-                              e.stopPropagation()
-                              // Download payroll report
-                              try {
-                                const response = await fetch('/api/reports/export/payroll', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    format: 'pdf',
-                                    startDate: run.payPeriodStart,
-                                    endDate: run.payPeriodEnd,
-                                  }),
-                                })
-
-                                if (!response.ok) {
-                                  throw new Error('Failed to generate report')
-                                }
-
-                                const blob = await response.blob()
-                                const url = window.URL.createObjectURL(blob)
-                                const a = document.createElement('a')
-                                a.href = url
-                                a.download = `payroll-run-${formatDate(run.payPeriodStart)}.pdf`
-                                a.click()
-                                window.URL.revokeObjectURL(url)
-                              } catch (error) {
-                                console.error('Error downloading report:', error)
-                                alert('Failed to download report. Please try again.')
-                              }
-                            }}
-                            title="Download"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                    />
+                  </div>
                 )}
-              </TableBody>
-            </Table>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="reports" className="p-4">
@@ -666,11 +960,12 @@ export default function PayrollPage() {
         onClose={() => {
           setShowEmployeeDetailsModal(false)
           setSelectedEmployee(null)
+          setEditingEmployee(false)
         }}
         title="Employee Details"
         size="lg"
       >
-        {selectedEmployee && (
+        {selectedEmployee && !editingEmployee && (
           <div className="space-y-6">
             {/* Header */}
             <div className="flex items-start justify-between pb-4 border-b border-secondary-200">
@@ -720,6 +1015,16 @@ export default function PayrollPage() {
             {/* Actions */}
             <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
               <Button
+                variant="danger"
+                onClick={() => {
+                  setShowEmployeeDetailsModal(false)
+                  setDeleteEmployeeTarget(selectedEmployee)
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+              <Button
                 variant="secondary"
                 onClick={() => {
                   setShowEmployeeDetailsModal(false)
@@ -728,8 +1033,96 @@ export default function PayrollPage() {
               >
                 Close
               </Button>
+              <Button
+                onClick={() => {
+                  setEditEmployeeForm({
+                    firstName: selectedEmployee.firstName,
+                    lastName: selectedEmployee.lastName,
+                    email: selectedEmployee.email || '',
+                    payType: selectedEmployee.payType,
+                    payRate: String(parseDecimal(selectedEmployee.payRate)),
+                    payFrequency: selectedEmployee.payFrequency,
+                    status: selectedEmployee.status,
+                  })
+                  setEditingEmployee(true)
+                }}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
             </div>
           </div>
+        )}
+
+        {selectedEmployee && editingEmployee && (
+          <form onSubmit={handleEditEmployee} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="First Name"
+                value={editEmployeeForm.firstName}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, firstName: e.target.value })}
+                required
+              />
+              <Input
+                label="Last Name"
+                value={editEmployeeForm.lastName}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, lastName: e.target.value })}
+                required
+              />
+            </div>
+            <Input
+              label="Email"
+              type="email"
+              value={editEmployeeForm.email}
+              onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, email: e.target.value })}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Pay Type"
+                options={[
+                  { value: 'HOURLY', label: 'Hourly' },
+                  { value: 'SALARY', label: 'Salary' },
+                ]}
+                value={editEmployeeForm.payType}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, payType: e.target.value })}
+              />
+              <Input
+                label="Pay Rate"
+                type="number"
+                step="0.01"
+                value={editEmployeeForm.payRate}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, payRate: e.target.value })}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Select
+                label="Pay Frequency"
+                options={[
+                  { value: 'WEEKLY', label: 'Weekly' },
+                  { value: 'BI_WEEKLY', label: 'Bi-Weekly' },
+                  { value: 'SEMI_MONTHLY', label: 'Semi-Monthly' },
+                  { value: 'MONTHLY', label: 'Monthly' },
+                ]}
+                value={editEmployeeForm.payFrequency}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, payFrequency: e.target.value })}
+              />
+              <Select
+                label="Status"
+                options={[
+                  { value: 'ACTIVE', label: 'Active' },
+                  { value: 'INACTIVE', label: 'Inactive' },
+                  { value: 'TERMINATED', label: 'Terminated' },
+                ]}
+                value={editEmployeeForm.status}
+                onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, status: e.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="secondary" onClick={() => setEditingEmployee(false)}>Cancel</Button>
+              <Button type="submit" loading={submitting}>Save Changes</Button>
+            </div>
+          </form>
         )}
       </Modal>
 
@@ -815,6 +1208,16 @@ export default function PayrollPage() {
             {/* Actions */}
             <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
               <Button
+                variant="danger"
+                onClick={() => {
+                  setShowPayrollDetailsModal(false)
+                  setDeleteRunTarget(selectedPayrollRun)
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+              <Button
                 variant="secondary"
                 onClick={() => {
                   setShowPayrollDetailsModal(false)
@@ -826,7 +1229,6 @@ export default function PayrollPage() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  // Print the payroll run details
                   window.print()
                 }}
               >
@@ -858,9 +1260,8 @@ export default function PayrollPage() {
                     a.download = `payroll-run-${formatDate(selectedPayrollRun.payPeriodStart)}.pdf`
                     a.click()
                     window.URL.revokeObjectURL(url)
-                  } catch (error) {
-                    console.error('Error downloading report:', error)
-                    alert('Failed to download report. Please try again.')
+                  } catch {
+                    toast('Failed to download report. Please try again.', 'error')
                   }
                 }}
               >
@@ -927,7 +1328,6 @@ export default function PayrollPage() {
               <Button
                 onClick={async () => {
                   try {
-                    // Generate and download report
                     const response = await fetch('/api/reports/export/payroll', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -951,9 +1351,8 @@ export default function PayrollPage() {
                     window.URL.revokeObjectURL(url)
                     setShowReportConfigModal(false)
                     setSelectedReportTemplate(null)
-                  } catch (error) {
-                    console.error('Error generating report:', error)
-                    alert('Failed to generate report. Please try again.')
+                  } catch {
+                    toast('Failed to generate report. Please try again.', 'error')
                   }
                 }}
               >
@@ -964,6 +1363,30 @@ export default function PayrollPage() {
           </div>
         )}
       </Modal>
+
+      {/* Confirm Delete Employee Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteEmployeeTarget}
+        onClose={() => setDeleteEmployeeTarget(null)}
+        onConfirm={handleDeleteEmployee}
+        title="Delete Employee"
+        message={`Are you sure you want to delete "${deleteEmployeeTarget ? `${deleteEmployeeTarget.firstName} ${deleteEmployeeTarget.lastName}` : ''}"? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deleting}
+      />
+
+      {/* Confirm Delete Payroll Run Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteRunTarget}
+        onClose={() => setDeleteRunTarget(null)}
+        onConfirm={handleDeleteRun}
+        title="Delete Payroll Run"
+        message={`Are you sure you want to delete the payroll run for ${deleteRunTarget ? `${formatDate(deleteRunTarget.payPeriodStart)} - ${formatDate(deleteRunTarget.payPeriodEnd)}` : ''}? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deleting}
+      />
     </div>
   )
 }

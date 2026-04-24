@@ -26,8 +26,6 @@ export function Tabs({ defaultValue = '', value, onValueChange, children, classN
   const activeTab = isControlled ? value : internalActiveTab
   const setActiveTab = isControlled ? onValueChange : setInternalActiveTab
 
-  console.log('Tabs render - isControlled:', isControlled, 'activeTab:', activeTab, 'value prop:', value)
-
   return (
     <TabsContext.Provider value={{ activeTab, setActiveTab }}>
       <div className={className}>{children}</div>
@@ -88,8 +86,6 @@ export function TabsContent({ value, children, className }: TabsContentProps) {
   if (!context) throw new Error('TabsContent must be used within Tabs')
 
   const { activeTab } = context
-
-  console.log('TabsContent render - value:', value, 'activeTab:', activeTab, 'showing:', activeTab === value)
 
   if (activeTab !== value) return null
 

@@ -380,8 +380,8 @@ export async function POST(request: NextRequest) {
     await prisma.aIAnalysis.create({
       data: {
         type: mapTypeToEnum(requestType) as never,
-        input: requestData,
-        output: result,
+        input: requestData as any,
+        output: result as any,
         confidence,
         status: 'COMPLETED',
         processingTime,
@@ -397,8 +397,8 @@ export async function POST(request: NextRequest) {
       await prisma.aIAnalysis.create({
         data: {
           type: mapTypeToEnum(requestType) as never,
-          input: requestData,
-          output: { error: error instanceof Error ? error.message : 'Unknown error' },
+          input: requestData as any,
+          output: { error: error instanceof Error ? error.message : 'Unknown error' } as any,
           confidence: 0,
           status: 'FAILED',
           processingTime: Date.now() - startTime,

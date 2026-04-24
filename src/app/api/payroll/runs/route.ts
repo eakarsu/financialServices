@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,25 +13,32 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const clientId = searchParams.get('client')
 
+    const pagination = parsePaginationParams(request, 'payDate')
+
     const where: Record<string, unknown> = {
       client: { firmId: user.firmId },
     }
 
     if (clientId) where.clientId = clientId
 
-    const payrollRuns = await prisma.payrollRun.findMany({
-      where,
-      orderBy: { payDate: 'desc' },
-      include: {
-        client: true,
-        createdBy: { select: { firstName: true, lastName: true } },
-        items: {
-          include: { employee: true },
+    const [payrollRuns, total] = await Promise.all([
+      prisma.payrollRun.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          client: true,
+          createdBy: { select: { firstName: true, lastName: true } },
+          items: {
+            include: { employee: true },
+          },
         },
-      },
-    })
+      }),
+      prisma.payrollRun.count({ where }),
+    ])
 
-    return NextResponse.json(payrollRuns)
+    return NextResponse.json(buildPaginatedResponse(payrollRuns, total, pagination))
   } catch (error) {
     console.error('Get payroll runs error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -46,13 +54,11 @@ export async function POST(request: NextRequest) {
 
     const { clientId, payPeriodStart, payPeriodEnd, payDate, employees } = await request.json()
 
-    // Calculate payroll for each employee
     const items = employees.map((emp: { employeeId: string; regularHours: number; overtimeHours: number; payRate: number }) => {
       const regularPay = emp.regularHours * emp.payRate
       const overtimePay = emp.overtimeHours * emp.payRate * 1.5
       const grossPay = regularPay + overtimePay
 
-      // Simplified tax calculations
       const federalTax = grossPay * 0.12
       const stateTax = grossPay * 0.05
       const socialSecurity = grossPay * 0.062

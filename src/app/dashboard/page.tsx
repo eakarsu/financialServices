@@ -2,15 +2,9 @@ import { getCurrentUser } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
+import StatCards from '@/components/dashboard/StatCards'
 import { formatCurrency, formatDate, parseDecimal } from '@/lib/utils'
 import {
-  Users,
-  FileText,
-  DollarSign,
-  TrendingUp,
-  Clock,
-  AlertCircle,
-  CheckCircle,
   Calendar,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -64,8 +58,8 @@ async function getDashboardData(firmId: string) {
       activeClients,
       documentCount,
       pendingTasks,
-      totalRevenue,
-      pendingRevenue,
+      totalRevenue: formatCurrency(totalRevenue),
+      pendingRevenue: formatCurrency(pendingRevenue),
     },
     recentTransactions,
     upcomingDeadlines,
@@ -80,41 +74,6 @@ export default async function DashboardPage() {
 
   const data = await getDashboardData(user.firmId)
 
-  const statCards = [
-    {
-      title: 'Total Clients',
-      value: data.stats.clientCount,
-      subtitle: `${data.stats.activeClients} active`,
-      icon: Users,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-100',
-    },
-    {
-      title: 'Documents',
-      value: data.stats.documentCount,
-      subtitle: 'Total files',
-      icon: FileText,
-      color: 'text-green-600',
-      bgColor: 'bg-green-100',
-    },
-    {
-      title: 'Revenue',
-      value: formatCurrency(data.stats.totalRevenue),
-      subtitle: `${formatCurrency(data.stats.pendingRevenue)} pending`,
-      icon: DollarSign,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-100',
-    },
-    {
-      title: 'Pending Tasks',
-      value: data.stats.pendingTasks,
-      subtitle: 'Tasks to complete',
-      icon: Clock,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-100',
-    },
-  ]
-
   return (
     <div className="space-y-6">
       <div>
@@ -124,23 +83,8 @@ export default async function DashboardPage() {
         <p className="text-secondary-600">Here&apos;s what&apos;s happening with your practice today.</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat) => (
-          <Card key={stat.title} variant="bordered">
-            <CardContent className="flex items-center">
-              <div className={`p-3 rounded-lg ${stat.bgColor}`}>
-                <stat.icon className={`h-6 w-6 ${stat.color}`} />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm text-secondary-500">{stat.title}</p>
-                <p className="text-2xl font-bold text-secondary-900">{stat.value}</p>
-                <p className="text-xs text-secondary-400">{stat.subtitle}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Stats Grid - Clickable */}
+      <StatCards stats={data.stats} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Transactions */}

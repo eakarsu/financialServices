@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Search, Filter, CreditCard, ArrowUpRight, ArrowDownRight, RefreshCw,
-  DollarSign, TrendingUp, TrendingDown, CheckCircle, AlertCircle, Brain
+  DollarSign, TrendingUp, TrendingDown, CheckCircle, AlertCircle, Brain, Trash2, Edit
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -15,6 +15,11 @@ import ExportButton from '@/components/ExportButton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
+import { TableSkeleton } from '@/components/ui/Skeleton'
+import Pagination from '@/components/ui/Pagination'
+import SortableHeader from '@/components/ui/SortableHeader'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 
 interface Transaction {
   id: string
@@ -58,7 +63,18 @@ interface Client {
   lastName?: string
 }
 
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
+}
+
 export default function BookkeepingPage() {
+  const { toast } = useToast()
+
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccount[]>([])
@@ -72,6 +88,38 @@ export default function BookkeepingPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Pagination & sorting state
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [sortBy, setSortBy] = useState('date')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false,
+  })
+
+  // Confirm dialog state
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
+  const [confirmMessage, setConfirmMessage] = useState('')
+  const [confirmTitle, setConfirmTitle] = useState('Confirm Action')
+  const [confirmLoading, setConfirmLoading] = useState(false)
+
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({
+    date: '',
+    description: '',
+    amount: '',
+    type: 'DEBIT',
+    categoryId: '',
+    bankAccountId: '',
+  })
 
   const [transactionForm, setTransactionForm] = useState({
     clientId: '',
@@ -91,15 +139,33 @@ export default function BookkeepingPage() {
     balance: '0',
   })
 
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+  }
+
+  useEffect(() => {
+    // Reset to page 1 when filters change
+    setPage(1)
+  }, [clientFilter, statusFilter])
+
   useEffect(() => {
     fetchData()
-  }, [clientFilter, statusFilter])
+  }, [clientFilter, statusFilter, page, limit, sortBy, sortOrder])
 
   const fetchData = async () => {
     try {
       const params = new URLSearchParams()
       if (clientFilter !== 'all') params.set('client', clientFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      params.set('page', String(page))
+      params.set('limit', String(limit))
+      params.set('sortBy', sortBy)
+      params.set('sortOrder', sortOrder)
 
       const [txRes, bankRes, coaRes, clientRes] = await Promise.all([
         fetch(`/api/bookkeeping/transactions?${params}`),
@@ -108,12 +174,15 @@ export default function BookkeepingPage() {
         fetch('/api/clients'),
       ])
 
-      setTransactions(await txRes.json())
+      const txData = await txRes.json()
+      setTransactions(txData.data)
+      setPagination(txData.pagination)
+
       setBankAccounts(await bankRes.json())
       setChartOfAccounts(await coaRes.json())
       setClients(await clientRes.json())
     } catch (error) {
-      console.error('Error fetching data:', error)
+      toast('Failed to load bookkeeping data. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
@@ -123,7 +192,7 @@ export default function BookkeepingPage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/bookkeeping/transactions', {
+      const res = await fetch('/api/bookkeeping/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -132,6 +201,7 @@ export default function BookkeepingPage() {
           status: transactionForm.categoryId ? 'CATEGORIZED' : 'PENDING',
         }),
       })
+      if (!res.ok) throw new Error('Failed to add transaction')
       setShowTransactionModal(false)
       setTransactionForm({
         clientId: '',
@@ -142,9 +212,10 @@ export default function BookkeepingPage() {
         type: 'DEBIT',
         categoryId: '',
       })
+      toast('Transaction added successfully.', 'success')
       fetchData()
     } catch (error) {
-      console.error('Error adding transaction:', error)
+      toast('Failed to add transaction. Please try again.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -154,7 +225,7 @@ export default function BookkeepingPage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/bookkeeping/bank-accounts', {
+      const res = await fetch('/api/bookkeeping/bank-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -162,6 +233,7 @@ export default function BookkeepingPage() {
           balance: parseFloat(bankForm.balance),
         }),
       })
+      if (!res.ok) throw new Error('Failed to add bank account')
       setShowBankModal(false)
       setBankForm({
         clientId: '',
@@ -170,9 +242,10 @@ export default function BookkeepingPage() {
         institution: '',
         balance: '0',
       })
+      toast('Bank account added successfully.', 'success')
       fetchData()
     } catch (error) {
-      console.error('Error adding bank account:', error)
+      toast('Failed to add bank account. Please try again.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -182,19 +255,93 @@ export default function BookkeepingPage() {
     if (!selectedTransaction) return
     setSubmitting(true)
     try {
-      await fetch(`/api/bookkeeping/transactions/${selectedTransaction.id}`, {
+      const res = await fetch(`/api/bookkeeping/transactions/${selectedTransaction.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ categoryId, status: 'CATEGORIZED' }),
       })
+      if (!res.ok) throw new Error('Failed to categorize transaction')
       setShowCategorizeModal(false)
       setSelectedTransaction(null)
+      toast('Transaction categorized successfully.', 'success')
       fetchData()
     } catch (error) {
-      console.error('Error categorizing transaction:', error)
+      toast('Failed to categorize transaction. Please try again.', 'error')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleDeleteTransaction = (tx: Transaction) => {
+    setConfirmTitle('Delete Transaction')
+    setConfirmMessage(`Are you sure you want to delete the transaction "${tx.description}"? This action cannot be undone.`)
+    setConfirmAction(() => async () => {
+      setConfirmLoading(true)
+      try {
+        const res = await fetch(`/api/bookkeeping/transactions/${tx.id}`, {
+          method: 'DELETE',
+        })
+        if (!res.ok) throw new Error('Failed to delete transaction')
+        setShowConfirmDialog(false)
+        setShowDetailsModal(false)
+        setSelectedTransaction(null)
+        toast('Transaction deleted successfully.', 'success')
+        fetchData()
+      } catch (error) {
+        toast('Failed to delete transaction. Please try again.', 'error')
+      } finally {
+        setConfirmLoading(false)
+      }
+    })
+    setShowConfirmDialog(true)
+  }
+
+  const handleEditTransaction = (tx: Transaction) => {
+    setEditForm({
+      date: tx.date.split('T')[0],
+      description: tx.description,
+      amount: String(parseDecimal(tx.amount)),
+      type: tx.type,
+      categoryId: tx.category?.id || '',
+      bankAccountId: tx.bankAccount?.id || '',
+    })
+    setShowDetailsModal(false)
+    setShowEditModal(true)
+  }
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedTransaction) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/bookkeeping/transactions/${selectedTransaction.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...editForm,
+          amount: parseFloat(editForm.amount),
+          status: editForm.categoryId ? 'CATEGORIZED' : 'PENDING',
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to update transaction')
+      setShowEditModal(false)
+      setSelectedTransaction(null)
+      toast('Transaction updated successfully.', 'success')
+      fetchData()
+    } catch (error) {
+      toast('Failed to update transaction. Please try again.', 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage)
+  }
+
+  const handleLimitChange = (newLimit: number) => {
+    setLimit(newLimit)
+    setPage(1)
   }
 
   const getClientName = (client?: Client) => {
@@ -317,90 +464,127 @@ export default function BookkeepingPage() {
           </div>
 
           <TabsContent value="transactions" className="p-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">Loading...</TableCell>
-                  </TableRow>
-                ) : transactions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
-                      No transactions found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  transactions.map((tx) => (
-                    <TableRow
-                      key={tx.id}
-                      onClick={() => {
-                        setSelectedTransaction(tx)
-                        setShowDetailsModal(true)
-                      }}
-                      className="cursor-pointer hover:bg-secondary-50"
-                    >
-                      <TableCell>{formatDate(tx.date)}</TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{tx.description}</p>
-                          {tx.vendor && <p className="text-xs text-secondary-500">{tx.vendor}</p>}
-                        </div>
-                      </TableCell>
-                      <TableCell>{getClientName(tx.client)}</TableCell>
-                      <TableCell>
-                        {tx.category ? (
-                          <span className="text-sm">{tx.category.accountNumber} - {tx.category.name}</span>
-                        ) : (
-                          <span className="text-secondary-400">Uncategorized</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={
-                            tx.status === 'CATEGORIZED' || tx.status === 'REVIEWED' ? 'success' :
-                            tx.status === 'PENDING' ? 'warning' : 'default'
-                          }>
-                            {tx.status}
-                          </Badge>
-                          {tx.aiCategorized && (
-                            <Brain className="h-4 w-4 text-purple-500" title="AI Categorized" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span className={tx.type === 'CREDIT' ? 'text-green-600' : 'text-red-600'}>
-                          {tx.type === 'CREDIT' ? '+' : '-'}{formatCurrency(parseDecimal(tx.amount))}
-                        </span>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedTransaction(tx)
-                            setShowCategorizeModal(true)
-                          }}
-                        >
-                          Categorize
-                        </Button>
-                      </TableCell>
+            {loading ? (
+              <TableSkeleton rows={8} cols={7} />
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <SortableHeader
+                        label="Date"
+                        sortKey="date"
+                        currentSortBy={sortBy}
+                        currentSortOrder={sortOrder}
+                        onSort={handleSort}
+                      />
+                      <SortableHeader
+                        label="Description"
+                        sortKey="description"
+                        currentSortBy={sortBy}
+                        currentSortOrder={sortOrder}
+                        onSort={handleSort}
+                      />
+                      <TableHead>Client</TableHead>
+                      <TableHead>Category</TableHead>
+                      <SortableHeader
+                        label="Status"
+                        sortKey="status"
+                        currentSortBy={sortBy}
+                        currentSortOrder={sortOrder}
+                        onSort={handleSort}
+                      />
+                      <SortableHeader
+                        label="Amount"
+                        sortKey="amount"
+                        currentSortBy={sortBy}
+                        currentSortOrder={sortOrder}
+                        onSort={handleSort}
+                        className="text-right"
+                      />
+                      <TableHead className="w-24">Actions</TableHead>
                     </TableRow>
-                  ))
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
+                          No transactions found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      transactions.map((tx) => (
+                        <TableRow
+                          key={tx.id}
+                          onClick={() => {
+                            setSelectedTransaction(tx)
+                            setShowDetailsModal(true)
+                          }}
+                          className="cursor-pointer hover:bg-secondary-50"
+                        >
+                          <TableCell>{formatDate(tx.date)}</TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{tx.description}</p>
+                              {tx.vendor && <p className="text-xs text-secondary-500">{tx.vendor}</p>}
+                            </div>
+                          </TableCell>
+                          <TableCell>{getClientName(tx.client)}</TableCell>
+                          <TableCell>
+                            {tx.category ? (
+                              <span className="text-sm">{tx.category.accountNumber} - {tx.category.name}</span>
+                            ) : (
+                              <span className="text-secondary-400">Uncategorized</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={
+                                tx.status === 'CATEGORIZED' || tx.status === 'REVIEWED' ? 'success' :
+                                tx.status === 'PENDING' ? 'warning' : 'default'
+                              }>
+                                {tx.status}
+                              </Badge>
+                              {tx.aiCategorized && (
+                                <span title="AI Categorized"><Brain className="h-4 w-4 text-purple-500" /></span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={tx.type === 'CREDIT' ? 'text-green-600' : 'text-red-600'}>
+                              {tx.type === 'CREDIT' ? '+' : '-'}{formatCurrency(parseDecimal(tx.amount))}
+                            </span>
+                          </TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedTransaction(tx)
+                                setShowCategorizeModal(true)
+                              }}
+                            >
+                              Categorize
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                {pagination.total > 0 && (
+                  <Pagination
+                    page={pagination.page}
+                    totalPages={pagination.totalPages}
+                    total={pagination.total}
+                    limit={pagination.limit}
+                    onPageChange={handlePageChange}
+                    onLimitChange={handleLimitChange}
+                  />
                 )}
-              </TableBody>
-            </Table>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="accounts" className="p-4">
@@ -710,28 +894,140 @@ export default function BookkeepingPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
+            <div className="flex justify-between pt-4 border-t border-secondary-200">
               <Button
-                variant="secondary"
-                onClick={() => {
-                  setShowDetailsModal(false)
-                  setSelectedTransaction(null)
-                }}
+                variant="danger"
+                onClick={() => handleDeleteTransaction(selectedTransaction)}
               >
-                Close
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
               </Button>
-              <Button
-                onClick={() => {
-                  setShowDetailsModal(false)
-                  setShowCategorizeModal(true)
-                }}
-              >
-                Categorize
-              </Button>
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShowDetailsModal(false)
+                    setSelectedTransaction(null)
+                  }}
+                >
+                  Close
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleEditTransaction(selectedTransaction)}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowDetailsModal(false)
+                    setShowCategorizeModal(true)
+                  }}
+                >
+                  Categorize
+                </Button>
+              </div>
             </div>
           </div>
         )}
       </Modal>
+
+      {/* Edit Transaction Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false)
+          setSelectedTransaction(null)
+        }}
+        title="Edit Transaction"
+        size="md"
+      >
+        {selectedTransaction && (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <Input
+              label="Date"
+              type="date"
+              value={editForm.date}
+              onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+              required
+            />
+            <Input
+              label="Description"
+              value={editForm.description}
+              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              required
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Amount"
+                type="number"
+                step="0.01"
+                value={editForm.amount}
+                onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                required
+              />
+              <Select
+                label="Type"
+                options={[
+                  { value: 'DEBIT', label: 'Debit (Expense)' },
+                  { value: 'CREDIT', label: 'Credit (Income)' },
+                ]}
+                value={editForm.type}
+                onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+              />
+            </div>
+            <Select
+              label="Bank Account"
+              options={[{ value: '', label: 'Select account' }, ...bankAccounts.filter(a => a.client.id === selectedTransaction.client.id).map(a => ({
+                value: a.id,
+                label: a.name,
+              }))]}
+              value={editForm.bankAccountId}
+              onChange={(e) => setEditForm({ ...editForm, bankAccountId: e.target.value })}
+            />
+            <Select
+              label="Category"
+              options={[{ value: '', label: 'Select category' }, ...chartOfAccounts.map(a => ({
+                value: a.id,
+                label: `${a.accountNumber} - ${a.name}`,
+              }))]}
+              value={editForm.categoryId}
+              onChange={(e) => setEditForm({ ...editForm, categoryId: e.target.value })}
+            />
+            <div className="flex justify-end gap-3 pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setShowEditModal(false)
+                  setSelectedTransaction(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" loading={submitting}>Save Changes</Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={showConfirmDialog}
+        onClose={() => {
+          setShowConfirmDialog(false)
+          setConfirmAction(null)
+        }}
+        onConfirm={() => {
+          if (confirmAction) confirmAction()
+        }}
+        title={confirmTitle}
+        message={confirmMessage}
+        confirmText="Delete"
+        variant="danger"
+        loading={confirmLoading}
+      />
     </div>
   )
 }

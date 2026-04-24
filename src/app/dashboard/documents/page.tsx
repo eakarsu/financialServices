@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Plus, Search, Filter, FileText, Folder, Download, Trash2,
-  Upload, Send, CheckCircle, Clock, File, Image, FileSpreadsheet
+  Upload, Send, CheckCircle, Clock, File, Image, FileSpreadsheet, Edit
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -14,6 +14,11 @@ import Badge from '@/components/ui/Badge'
 import Modal from '@/components/ui/Modal'
 import Textarea from '@/components/ui/Textarea'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
+import { TableSkeleton } from '@/components/ui/Skeleton'
+import Pagination from '@/components/ui/Pagination'
+import SortableHeader from '@/components/ui/SortableHeader'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 import { formatDate } from '@/lib/utils'
 
 interface Document {
@@ -48,6 +53,15 @@ interface DocumentRequestTemplate {
   category: string
 }
 
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
+}
+
 const documentTypes = [
   { value: 'TAX_RETURN', label: 'Tax Return' },
   { value: 'FINANCIAL_STATEMENT', label: 'Financial Statement' },
@@ -66,6 +80,7 @@ const documentTypes = [
 export default function DocumentsPage() {
   const searchParams = useSearchParams()
   const clientParam = searchParams.get('client')
+  const { toast } = useToast()
 
   const [documents, setDocuments] = useState<Document[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -81,6 +96,27 @@ export default function DocumentsPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Pagination and sort state
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false,
+  })
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    documentId: string | null
+  }>({ isOpen: false, documentId: null })
+  const [deleting, setDeleting] = useState(false)
 
   const [uploadForm, setUploadForm] = useState({
     name: '',
@@ -99,21 +135,28 @@ export default function DocumentsPage() {
     fetchDocuments()
     fetchClients()
     fetchDocumentRequestTemplates()
-  }, [typeFilter, statusFilter, clientFilter])
+  }, [typeFilter, statusFilter, clientFilter, page, limit, sortBy, sortOrder])
 
   const fetchDocuments = async () => {
     try {
+      setLoading(true)
       const params = new URLSearchParams()
       if (typeFilter !== 'all') params.set('type', typeFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
       if (clientFilter !== 'all') params.set('client', clientFilter)
       if (search) params.set('search', search)
+      params.set('page', String(page))
+      params.set('limit', String(limit))
+      params.set('sortBy', sortBy)
+      params.set('sortOrder', sortOrder)
 
       const res = await fetch(`/api/documents?${params}`)
-      const data = await res.json()
-      setDocuments(data)
+      if (!res.ok) throw new Error('Failed to fetch documents')
+      const response = await res.json()
+      setDocuments(response.data)
+      setPagination(response.pagination)
     } catch (error) {
-      console.error('Error fetching documents:', error)
+      toast('Failed to load documents. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
@@ -122,20 +165,22 @@ export default function DocumentsPage() {
   const fetchClients = async () => {
     try {
       const res = await fetch('/api/clients')
+      if (!res.ok) throw new Error('Failed to fetch clients')
       const data = await res.json()
       setClients(data)
     } catch (error) {
-      console.error('Error fetching clients:', error)
+      toast('Failed to load clients.', 'error')
     }
   }
 
   const fetchDocumentRequestTemplates = async () => {
     try {
       const res = await fetch('/api/templates/document-requests')
+      if (!res.ok) throw new Error('Failed to fetch templates')
       const data = await res.json()
       setDocumentRequestTemplates(data)
     } catch (error) {
-      console.error('Error fetching document request templates:', error)
+      toast('Failed to load document request templates.', 'error')
     }
   }
 
@@ -158,6 +203,7 @@ export default function DocumentsPage() {
       })
 
       if (res.ok) {
+        toast('Document uploaded successfully.', 'success')
         setShowUploadModal(false)
         setUploadForm({
           name: '',
@@ -167,9 +213,11 @@ export default function DocumentsPage() {
           taxYear: new Date().getFullYear(),
         })
         fetchDocuments()
+      } else {
+        toast('Failed to upload document. Please try again.', 'error')
       }
     } catch (error) {
-      console.error('Error uploading document:', error)
+      toast('Failed to upload document. Please try again.', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -182,36 +230,84 @@ export default function DocumentsPage() {
     setSubmitting(true)
 
     try {
-      await fetch(`/api/documents/${selectedDoc.id}/signatures`, {
+      const res = await fetch(`/api/documents/${selectedDoc.id}/signatures`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(signatureForm),
       })
 
+      if (res.ok) {
+        toast('Signature request sent successfully.', 'success')
+      } else {
+        toast('Failed to send signature request.', 'error')
+      }
+
       setShowSignatureModal(false)
       setSignatureForm({ signerName: '', signerEmail: '' })
       fetchDocuments()
     } catch (error) {
-      console.error('Error requesting signature:', error)
+      toast('Failed to send signature request. Please try again.', 'error')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this document?')) return
+  const handleDeleteClick = (id: string) => {
+    setConfirmDialog({ isOpen: true, documentId: id })
+  }
 
+  const handleDeleteConfirm = async () => {
+    if (!confirmDialog.documentId) return
+
+    setDeleting(true)
     try {
-      await fetch(`/api/documents/${id}`, { method: 'DELETE' })
-      fetchDocuments()
+      const res = await fetch(`/api/documents/${confirmDialog.documentId}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Document deleted successfully.', 'success')
+        // Close the detail modal if the deleted doc is currently open
+        if (selectedDoc && selectedDoc.id === confirmDialog.documentId) {
+          setShowDetailsModal(false)
+          setSelectedDoc(null)
+        }
+        fetchDocuments()
+      } else {
+        toast('Failed to delete document. Please try again.', 'error')
+      }
     } catch (error) {
-      console.error('Error deleting document:', error)
+      toast('Failed to delete document. Please try again.', 'error')
+    } finally {
+      setDeleting(false)
+      setConfirmDialog({ isOpen: false, documentId: null })
     }
+  }
+
+  const handleDeleteCancel = () => {
+    setConfirmDialog({ isOpen: false, documentId: null })
   }
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setPage(1)
     fetchDocuments()
+  }
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+    setPage(1)
+  }
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage)
+  }
+
+  const handleLimitChange = (newLimit: number) => {
+    setLimit(newLimit)
+    setPage(1)
   }
 
   const getFileIcon = (mimeType: string) => {
@@ -315,100 +411,153 @@ export default function DocumentsPage() {
       {/* Documents Table */}
       <Card variant="bordered">
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Document</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Uploaded</TableHead>
-                <TableHead className="w-32">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
+          {loading ? (
+            <div className="p-6">
+              <TableSkeleton rows={limit > 10 ? 10 : limit} cols={7} />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">Loading...</TableCell>
+                  <SortableHeader
+                    label="Document"
+                    sortKey="name"
+                    currentSortBy={sortBy}
+                    currentSortOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <TableHead>Client</TableHead>
+                  <SortableHeader
+                    label="Type"
+                    sortKey="type"
+                    currentSortBy={sortBy}
+                    currentSortOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="Status"
+                    sortKey="status"
+                    currentSortBy={sortBy}
+                    currentSortOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <TableHead>Size</TableHead>
+                  <SortableHeader
+                    label="Uploaded"
+                    sortKey="createdAt"
+                    currentSortBy={sortBy}
+                    currentSortOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <TableHead className="w-32">Actions</TableHead>
                 </TableRow>
-              ) : documents.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
-                    No documents found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                documents.map((doc) => (
-                  <TableRow
-                    key={doc.id}
-                    onClick={() => {
-                      setSelectedDoc(doc)
-                      setShowDetailsModal(true)
-                    }}
-                    className="cursor-pointer hover:bg-secondary-50"
-                  >
-                    <TableCell>
-                      <div className="flex items-center">
-                        <div className="p-2 bg-secondary-100 rounded-lg mr-3">
-                          {getFileIcon(doc.mimeType)}
-                        </div>
-                        <div>
-                          <p className="font-medium text-secondary-900">{doc.name}</p>
-                          {doc.description && (
-                            <p className="text-xs text-secondary-500 truncate max-w-[200px]">{doc.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{getClientName(doc.client)}</TableCell>
-                    <TableCell><Badge variant="outline">{doc.type.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell>{getStatusBadge(doc.status)}</TableCell>
-                    <TableCell>{formatFileSize(doc.fileSize)}</TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="text-sm">{formatDate(doc.createdAt)}</p>
-                        <p className="text-xs text-secondary-500">{doc.uploadedBy.firstName} {doc.uploadedBy.lastName}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" className="p-1" title="Download">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="p-1"
-                          title="Request Signature"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedDoc(doc)
-                            setShowSignatureModal(true)
-                          }}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="p-1 text-red-600"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDelete(doc.id)
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+              </TableHeader>
+              <TableBody>
+                {documents.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-secondary-500">
+                      No documents found
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  documents.map((doc) => (
+                    <TableRow
+                      key={doc.id}
+                      onClick={() => {
+                        setSelectedDoc(doc)
+                        setShowDetailsModal(true)
+                      }}
+                      className="cursor-pointer hover:bg-secondary-50"
+                    >
+                      <TableCell>
+                        <div className="flex items-center">
+                          <div className="p-2 bg-secondary-100 rounded-lg mr-3">
+                            {getFileIcon(doc.mimeType)}
+                          </div>
+                          <div>
+                            <p className="font-medium text-secondary-900">{doc.name}</p>
+                            {doc.description && (
+                              <p className="text-xs text-secondary-500 truncate max-w-[200px]">{doc.description}</p>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getClientName(doc.client)}</TableCell>
+                      <TableCell><Badge variant="outline">{doc.type.replace('_', ' ')}</Badge></TableCell>
+                      <TableCell>{getStatusBadge(doc.status)}</TableCell>
+                      <TableCell>{formatFileSize(doc.fileSize)}</TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="text-sm">{formatDate(doc.createdAt)}</p>
+                          <p className="text-xs text-secondary-500">{doc.uploadedBy.firstName} {doc.uploadedBy.lastName}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="sm" className="p-1" title="Download">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="p-1"
+                            title="Request Signature"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedDoc(doc)
+                              setShowSignatureModal(true)
+                            }}
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="p-1 text-red-600"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteClick(doc.id)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </div>
+
+        {/* Pagination */}
+        {!loading && pagination.total > 0 && (
+          <div className="border-t border-secondary-200 px-4">
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              total={pagination.total}
+              limit={limit}
+              onPageChange={handlePageChange}
+              onLimitChange={handleLimitChange}
+            />
+          </div>
+        )}
       </Card>
+
+      {/* Confirm Dialog for Delete */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Document"
+        message="Are you sure you want to delete this document? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        loading={deleting}
+      />
 
       {/* Upload Modal */}
       <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} title="Upload Document" size="md">
@@ -614,29 +763,44 @@ export default function DocumentsPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
+            <div className="flex justify-between gap-3 pt-4 border-t border-secondary-200">
               <Button
-                variant="secondary"
+                variant="danger"
                 onClick={() => {
-                  setShowDetailsModal(false)
-                  setSelectedDoc(null)
+                  handleDeleteClick(selectedDoc.id)
                 }}
               >
-                Close
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
               </Button>
-              <Button variant="secondary">
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowDetailsModal(false)
-                  setShowSignatureModal(true)
-                }}
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Request Signature
-              </Button>
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShowDetailsModal(false)
+                    setSelectedDoc(null)
+                  }}
+                >
+                  Close
+                </Button>
+                <Button variant="secondary">
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button variant="secondary">
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowDetailsModal(false)
+                    setShowSignatureModal(true)
+                  }}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Request Signature
+                </Button>
+              </div>
             </div>
           </div>
         )}

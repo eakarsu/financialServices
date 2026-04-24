@@ -11,7 +11,7 @@ if (EMAIL_PROVIDER === 'sendgrid' && SENDGRID_API_KEY) {
 }
 
 // SMTP configuration
-const smtpTransporter = nodemailer.createTransporter({
+const smtpTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
   secure: process.env.SMTP_SECURE === 'true',
@@ -54,7 +54,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
  * Send email via SendGrid
  */
 async function sendEmailViaSendGrid(options: EmailOptions): Promise<void> {
-  const msg: sgMail.MailDataRequired = {
+  const msg = {
     to: options.to,
     from: options.from!,
     subject: options.subject,
@@ -71,7 +71,7 @@ async function sendEmailViaSendGrid(options: EmailOptions): Promise<void> {
     })),
   }
 
-  await sgMail.send(msg)
+  await sgMail.send(msg as any)
 }
 
 /**

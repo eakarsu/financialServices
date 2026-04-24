@@ -68,7 +68,7 @@ const aiFeatures: AIFeature[] = [
 export default function AIPage() {
   const [selectedFeature, setSelectedFeature] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<Record<string, unknown> | null>(null)
+  const [result, setResult] = useState<Record<string, any> | null>(null)
   const [inputData, setInputData] = useState({
     description: '',
     clientName: '',

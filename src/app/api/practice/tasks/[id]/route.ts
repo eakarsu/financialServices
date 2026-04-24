@@ -19,7 +19,6 @@ export async function GET(
       include: {
         client: true,
         assignedTo: true,
-        createdBy: true,
       },
     })
 

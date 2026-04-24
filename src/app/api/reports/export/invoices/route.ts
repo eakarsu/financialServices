@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const invoices = await prisma.invoice.findMany({
       where,
       include: {
-        client: { select: { name: true } },
+        client: { select: { firstName: true, lastName: true, businessName: true } },
       },
       orderBy: { issueDate: 'desc' },
     })
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const filename = `invoices-${Date.now()}.${format === 'pdf' ? 'pdf' : 'xlsx'}`
     const contentType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`,

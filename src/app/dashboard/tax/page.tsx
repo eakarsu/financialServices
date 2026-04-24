@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Plus, Search, Filter, Receipt, Calendar, FileCheck, Clock, AlertTriangle,
-  CheckCircle, XCircle, ArrowRight, FileText
+  CheckCircle, XCircle, ArrowRight, FileText, Edit, Trash2
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -16,6 +16,11 @@ import Modal from '@/components/ui/Modal'
 import ExportButton from '@/components/ExportButton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/Table'
+import { TableSkeleton } from '@/components/ui/Skeleton'
+import Pagination from '@/components/ui/Pagination'
+import SortableHeader from '@/components/ui/SortableHeader'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
 
 interface TaxReturn {
@@ -48,6 +53,15 @@ interface Client {
   lastName?: string
 }
 
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
+}
+
 const returnTypes = [
   { value: 'INDIVIDUAL_1040', label: 'Individual (1040)' },
   { value: 'BUSINESS_1120', label: 'C Corporation (1120)' },
@@ -71,16 +85,24 @@ const statusColors: Record<string, 'default' | 'success' | 'warning' | 'danger' 
 
 export default function TaxPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [returns, setReturns] = useState<TaxReturn[]>([])
   const [deadlines, setDeadlines] = useState<TaxDeadline[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString())
   const [statusFilter, setStatusFilter] = useState('all')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [sortBy, setSortBy] = useState('taxYear')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [pagination, setPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0, hasNext: false, hasPrev: false })
   const [showModal, setShowModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedReturn, setSelectedReturn] = useState<TaxReturn | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<TaxReturn | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const [formData, setFormData] = useState({
     clientId: '',
@@ -88,15 +110,16 @@ export default function TaxPage() {
     type: 'INDIVIDUAL_1040',
   })
 
-  useEffect(() => {
-    fetchData()
-  }, [yearFilter, statusFilter])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (fetchPage = page) => {
     try {
+      setLoading(true)
       const params = new URLSearchParams()
       if (yearFilter !== 'all') params.set('year', yearFilter)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      params.set('page', String(fetchPage))
+      params.set('limit', String(limit))
+      params.set('sortBy', sortBy)
+      params.set('sortOrder', sortOrder)
 
       const [returnsRes, deadlinesRes, clientsRes] = await Promise.all([
         fetch(`/api/tax/returns?${params}`),
@@ -104,13 +127,29 @@ export default function TaxPage() {
         fetch('/api/clients'),
       ])
 
-      setReturns(await returnsRes.json())
+      const returnsData = await returnsRes.json()
+      setReturns(returnsData.data)
+      setPagination(returnsData.pagination)
       setDeadlines(await deadlinesRes.json())
       setClients(await clientsRes.json())
-    } catch (error) {
-      console.error('Error fetching data:', error)
+    } catch {
+      toast('Error fetching tax data', 'error')
     } finally {
       setLoading(false)
+    }
+  }, [yearFilter, statusFilter, page, limit, sortBy, sortOrder, toast])
+
+  useEffect(() => {
+    fetchData(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yearFilter, statusFilter, sortBy, sortOrder])
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
     }
   }
 
@@ -118,22 +157,49 @@ export default function TaxPage() {
     e.preventDefault()
     setSubmitting(true)
     try {
-      await fetch('/api/tax/returns', {
+      const res = await fetch('/api/tax/returns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       })
-      setShowModal(false)
-      setFormData({
-        clientId: '',
-        taxYear: new Date().getFullYear(),
-        type: 'INDIVIDUAL_1040',
-      })
-      fetchData()
-    } catch (error) {
-      console.error('Error creating tax return:', error)
+      if (res.ok) {
+        setShowModal(false)
+        setFormData({
+          clientId: '',
+          taxYear: new Date().getFullYear(),
+          type: 'INDIVIDUAL_1040',
+        })
+        fetchData(1)
+        toast('Tax return created successfully', 'success')
+      } else {
+        const data = await res.json()
+        toast(data.error || 'Error creating tax return', 'error')
+      }
+    } catch {
+      toast('Error creating tax return', 'error')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/tax/returns/${deleteTarget.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast('Tax return deleted successfully', 'success')
+        setShowDetailsModal(false)
+        setSelectedReturn(null)
+        fetchData()
+      } else {
+        toast('Error deleting tax return', 'error')
+      }
+    } catch {
+      toast('Error deleting tax return', 'error')
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
     }
   }
 
@@ -262,64 +328,81 @@ export default function TaxPage() {
             </CardHeader>
             <CardContent>
               {loading ? (
-                <p className="text-center py-8">Loading...</p>
+                <TableSkeleton rows={8} cols={6} />
               ) : returns.length === 0 ? (
                 <div className="text-center py-8">
                   <Receipt className="h-12 w-12 mx-auto text-secondary-400 mb-4" />
                   <p className="text-secondary-500">No tax returns found</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {returns.map((taxReturn) => {
-                    const progress = getChecklistProgress(taxReturn.checklistItems)
-                    return (
-                      <div
-                        key={taxReturn.id}
-                        className="p-4 border border-secondary-200 rounded-lg hover:border-primary-300 transition-colors cursor-pointer"
-                        onClick={() => {
-                          setSelectedReturn(taxReturn)
-                          setShowDetailsModal(true)
-                        }}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center">
-                            <div className="p-2 bg-secondary-100 rounded-lg mr-3">
-                              <FileText className="h-5 w-5 text-secondary-600" />
-                            </div>
-                            <div>
-                              <p className="font-medium">{getClientName(taxReturn.client)}</p>
-                              <p className="text-sm text-secondary-500">
-                                {taxReturn.taxYear} {returnTypes.find(t => t.value === taxReturn.type)?.label}
-                              </p>
-                            </div>
-                          </div>
-                          <Badge variant={statusColors[taxReturn.status] || 'default'}>
-                            {taxReturn.status.replace(/_/g, ' ')}
-                          </Badge>
-                        </div>
-                        <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <p className="text-secondary-500">Due Date</p>
-                            <p className="font-medium">
-                              {taxReturn.dueDate ? formatDate(taxReturn.dueDate) : '-'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-secondary-500">Documents</p>
-                            <p className="font-medium">{progress.received}/{progress.total} ({progress.percentage}%)</p>
-                          </div>
-                          <div>
-                            <p className="text-secondary-500">Estimate</p>
-                            <p className={`font-medium ${taxReturn.estimatedRefund ? 'text-green-600' : taxReturn.estimatedOwed ? 'text-red-600' : ''}`}>
-                              {taxReturn.estimatedRefund ? `Refund: ${formatCurrency(parseDecimal(taxReturn.estimatedRefund))}` :
-                               taxReturn.estimatedOwed ? `Owed: ${formatCurrency(parseDecimal(taxReturn.estimatedOwed))}` : '-'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <thead>
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Client</th>
+                          <SortableHeader label="Tax Year" sortKey="taxYear" currentSortBy={sortBy} currentSortOrder={sortOrder} onSort={handleSort} />
+                          <SortableHeader label="Type" sortKey="type" currentSortBy={sortBy} currentSortOrder={sortOrder} onSort={handleSort} />
+                          <SortableHeader label="Status" sortKey="status" currentSortBy={sortBy} currentSortOrder={sortOrder} onSort={handleSort} />
+                          <SortableHeader label="Due Date" sortKey="dueDate" currentSortBy={sortBy} currentSortOrder={sortOrder} onSort={handleSort} />
+                          <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Documents</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">Estimate</th>
+                        </tr>
+                      </thead>
+                      <TableBody>
+                        {returns.map((taxReturn) => {
+                          const progress = getChecklistProgress(taxReturn.checklistItems)
+                          return (
+                            <tr
+                              key={taxReturn.id}
+                              className="cursor-pointer hover:bg-secondary-50 border-b border-secondary-100"
+                              onClick={() => {
+                                setSelectedReturn(taxReturn)
+                                setShowDetailsModal(true)
+                              }}
+                            >
+                              <TableCell>
+                                <div className="flex items-center">
+                                  <div className="p-2 bg-secondary-100 rounded-lg mr-3">
+                                    <FileText className="h-4 w-4 text-secondary-600" />
+                                  </div>
+                                  <p className="font-medium text-secondary-900">{getClientName(taxReturn.client)}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>{taxReturn.taxYear}</TableCell>
+                              <TableCell>{returnTypes.find(t => t.value === taxReturn.type)?.label || taxReturn.type}</TableCell>
+                              <TableCell>
+                                <Badge variant={statusColors[taxReturn.status] || 'default'}>
+                                  {taxReturn.status.replace(/_/g, ' ')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{taxReturn.dueDate ? formatDate(taxReturn.dueDate) : '-'}</TableCell>
+                              <TableCell>{progress.received}/{progress.total} ({progress.percentage}%)</TableCell>
+                              <TableCell>
+                                <span className={taxReturn.estimatedRefund ? 'text-green-600' : taxReturn.estimatedOwed ? 'text-red-600' : ''}>
+                                  {taxReturn.estimatedRefund ? `Refund: ${formatCurrency(parseDecimal(taxReturn.estimatedRefund))}` :
+                                   taxReturn.estimatedOwed ? `Owed: ${formatCurrency(parseDecimal(taxReturn.estimatedOwed))}` : '-'}
+                                </span>
+                              </TableCell>
+                            </tr>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {pagination.total > 0 && (
+                    <div className="border-t border-secondary-200">
+                      <Pagination
+                        page={pagination.page}
+                        totalPages={pagination.totalPages}
+                        total={pagination.total}
+                        limit={pagination.limit}
+                        onPageChange={(p) => fetchData(p)}
+                        onLimitChange={(l) => { setLimit(l); setPagination(prev => ({ ...prev, limit: l })); fetchData(1) }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -389,7 +472,7 @@ export default function TaxPage() {
       {selectedReturn && (
         <Modal
           isOpen={showDetailsModal}
-          onClose={() => setShowDetailsModal(false)}
+          onClose={() => { setShowDetailsModal(false); setSelectedReturn(null) }}
           title="Tax Return Details"
           size="lg"
         >
@@ -488,7 +571,15 @@ export default function TaxPage() {
 
             {/* Actions */}
             <div className="flex justify-end gap-3 pt-4 border-t border-secondary-200">
-              <Button variant="secondary" onClick={() => setShowDetailsModal(false)}>Close</Button>
+              <Button variant="danger" onClick={() => { setShowDetailsModal(false); setDeleteTarget(selectedReturn) }}>
+                <Trash2 className="h-4 w-4 mr-2" />Delete
+              </Button>
+              <Button variant="secondary" onClick={() => { setShowDetailsModal(false); setSelectedReturn(null) }}>Close</Button>
+              <Link href={`/dashboard/tax/${selectedReturn.id}/edit`}>
+                <Button>
+                  <Edit className="h-4 w-4 mr-2" />Edit Return
+                </Button>
+              </Link>
             </div>
           </div>
         </Modal>
@@ -526,6 +617,18 @@ export default function TaxPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Delete Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete Tax Return"
+        message={`Are you sure you want to delete the ${deleteTarget ? `${deleteTarget.taxYear} ${returnTypes.find(t => t.value === deleteTarget.type)?.label || deleteTarget.type}` : ''} tax return for "${deleteTarget ? getClientName(deleteTarget.client) : ''}"? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deleting}
+      />
     </div>
   )
 }

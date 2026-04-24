@@ -7,9 +7,25 @@ import Input from '@/components/ui/Input'
 import Select from '@/components/ui/Select'
 import Card, { CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
+import { useToast } from '@/components/ui/Toast'
+
+function getPasswordStrength(password: string): { score: number; label: string; color: string } {
+  let score = 0
+  if (password.length >= 8) score++
+  if (/[A-Z]/.test(password)) score++
+  if (/[a-z]/.test(password)) score++
+  if (/[0-9]/.test(password)) score++
+  if (/[^A-Za-z0-9]/.test(password)) score++
+  if (score <= 2) return { score, label: 'Weak', color: 'bg-red-500' }
+  if (score <= 3) return { score, label: 'Fair', color: 'bg-yellow-500' }
+  if (score <= 4) return { score, label: 'Good', color: 'bg-blue-500' }
+  return { score, label: 'Strong', color: 'bg-green-500' }
+}
 
 export default function SettingsPage() {
+  const { toast } = useToast()
   const [saving, setSaving] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
   const [profileData, setProfileData] = useState({
     firstName: '',
     lastName: '',
@@ -32,6 +48,13 @@ export default function SettingsPage() {
     defaultPaymentTerms: '30',
     fiscalYearStart: '1',
   })
+  const [changePasswordData, setChangePasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+
+  const passwordStrength = getPasswordStrength(changePasswordData.newPassword)
 
   useEffect(() => {
     fetchSettings()
@@ -62,7 +85,7 @@ export default function SettingsPage() {
         }
       }
     } catch (error) {
-      console.error('Error fetching settings:', error)
+      toast('Failed to load settings', 'error')
     }
   }
 
@@ -85,6 +108,58 @@ export default function SettingsPage() {
     // Implement save logic
     await new Promise(resolve => setTimeout(resolve, 1000))
     setSaving(false)
+  }
+
+  const handleChangePassword = async () => {
+    if (!changePasswordData.currentPassword) {
+      toast('Please enter your current password', 'error')
+      return
+    }
+
+    if (!changePasswordData.newPassword) {
+      toast('Please enter a new password', 'error')
+      return
+    }
+
+    if (changePasswordData.newPassword !== changePasswordData.confirmPassword) {
+      toast('New passwords do not match', 'error')
+      return
+    }
+
+    if (passwordStrength.score <= 2) {
+      toast('Please choose a stronger password', 'error')
+      return
+    }
+
+    setChangingPassword(true)
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: changePasswordData.currentPassword,
+          newPassword: changePasswordData.newPassword,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        toast(data.error || 'Failed to change password', 'error')
+        return
+      }
+
+      toast('Password changed successfully', 'success')
+      setChangePasswordData({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      })
+    } catch (error) {
+      toast('An unexpected error occurred. Please try again.', 'error')
+    } finally {
+      setChangingPassword(false)
+    }
   }
 
   return (
@@ -314,16 +389,68 @@ export default function SettingsPage() {
                     label="Current Password"
                     type="password"
                     placeholder="Enter current password"
+                    value={changePasswordData.currentPassword}
+                    onChange={(e) =>
+                      setChangePasswordData({ ...changePasswordData, currentPassword: e.target.value })
+                    }
                   />
-                  <Input
-                    label="New Password"
-                    type="password"
-                    placeholder="Enter new password"
-                  />
+                  <div>
+                    <Input
+                      label="New Password"
+                      type="password"
+                      placeholder="Enter new password"
+                      value={changePasswordData.newPassword}
+                      onChange={(e) =>
+                        setChangePasswordData({ ...changePasswordData, newPassword: e.target.value })
+                      }
+                    />
+                    {changePasswordData.newPassword && (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-secondary-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${passwordStrength.color}`}
+                              style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-medium text-secondary-600">
+                            {passwordStrength.label}
+                          </span>
+                        </div>
+                        <ul className="mt-2 space-y-1 text-xs text-secondary-500">
+                          <li className={changePasswordData.newPassword.length >= 8 ? 'text-green-600' : ''}>
+                            {changePasswordData.newPassword.length >= 8 ? '\u2713' : '\u2022'} At least 8 characters
+                          </li>
+                          <li className={/[A-Z]/.test(changePasswordData.newPassword) ? 'text-green-600' : ''}>
+                            {/[A-Z]/.test(changePasswordData.newPassword) ? '\u2713' : '\u2022'} One uppercase letter
+                          </li>
+                          <li className={/[a-z]/.test(changePasswordData.newPassword) ? 'text-green-600' : ''}>
+                            {/[a-z]/.test(changePasswordData.newPassword) ? '\u2713' : '\u2022'} One lowercase letter
+                          </li>
+                          <li className={/[0-9]/.test(changePasswordData.newPassword) ? 'text-green-600' : ''}>
+                            {/[0-9]/.test(changePasswordData.newPassword) ? '\u2713' : '\u2022'} One number
+                          </li>
+                          <li className={/[^A-Za-z0-9]/.test(changePasswordData.newPassword) ? 'text-green-600' : ''}>
+                            {/[^A-Za-z0-9]/.test(changePasswordData.newPassword) ? '\u2713' : '\u2022'} One special character
+                          </li>
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                   <Input
                     label="Confirm New Password"
                     type="password"
                     placeholder="Confirm new password"
+                    value={changePasswordData.confirmPassword}
+                    onChange={(e) =>
+                      setChangePasswordData({ ...changePasswordData, confirmPassword: e.target.value })
+                    }
+                    error={
+                      changePasswordData.confirmPassword &&
+                      changePasswordData.newPassword !== changePasswordData.confirmPassword
+                        ? 'Passwords do not match'
+                        : undefined
+                    }
                   />
                 </div>
               </div>
@@ -347,7 +474,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium">Current Session</p>
-                      <p className="text-sm text-secondary-500">This device • Active now</p>
+                      <p className="text-sm text-secondary-500">This device - Active now</p>
                     </div>
                     <Button variant="ghost" className="text-red-600">Sign Out</Button>
                   </div>
@@ -355,7 +482,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex justify-end">
-                <Button>
+                <Button onClick={handleChangePassword} loading={changingPassword}>
                   <Save className="h-4 w-4 mr-2" />
                   Update Password
                 </Button>
