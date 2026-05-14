@@ -160,6 +160,7 @@ model Client {
   tasks             Task[]
   journalEntries    JournalEntry[]
   budgets           Budget[]
+  healthScores      FinancialHealthScore[]
 
   @@index([firmId])
   @@index([clientNumber])
@@ -1337,3 +1338,25 @@ model TaxChecklistTemplate {
   @@index([returnType])
   @@index([firmId])
 }
+
+// ============= FINANCIAL HEALTH SCORE =============
+model FinancialHealthScore {
+  id                  String    @id @default(uuid())
+  score               Int       // 0-100 composite score
+  incomeExpenseRatio  Decimal   // income / expenses
+  savingsRate         Decimal   // (income - expenses) / income
+  debtToIncome        Decimal   // total debt payments / gross income
+  emergencyFundMonths Decimal   // liquid assets / monthly expenses
+  narrative           String    @db.Text  // AI-generated assessment
+  recommendations     Json      // String[] of 3 specific recommendations
+  periodStart         DateTime
+  periodEnd           DateTime
+  computedAt          DateTime  @default(now())
+
+  client              Client    @relation(fields: [clientId], references: [id])
+  clientId            String
+
+  @@index([clientId])
+  @@index([computedAt])
+}
+

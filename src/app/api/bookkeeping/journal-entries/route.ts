@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,18 +19,25 @@ export async function GET(request: NextRequest) {
 
     if (clientId) where.clientId = clientId
 
-    const entries = await prisma.journalEntry.findMany({
-      where,
-      orderBy: { date: 'desc' },
-      include: {
-        client: true,
-        lines: {
-          include: { account: true },
-        },
-      },
-    })
+    const pagination = parsePaginationParams(request, 'date')
 
-    return NextResponse.json(entries)
+    const [entries, total] = await Promise.all([
+      prisma.journalEntry.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        include: {
+          client: true,
+          lines: {
+            include: { account: true },
+          },
+        },
+      }),
+      prisma.journalEntry.count({ where }),
+    ])
+
+    return NextResponse.json(buildPaginatedResponse(entries, total, pagination))
   } catch (error) {
     console.error('Get journal entries error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

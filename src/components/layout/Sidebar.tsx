@@ -30,6 +30,7 @@ const navigation = [
   { name: 'Financial Reports', href: '/dashboard/reports', icon: BarChart3 },
   { name: 'Practice Management', href: '/dashboard/practice', icon: Briefcase },
   { name: 'AI Features', href: '/dashboard/ai', icon: Brain },
+  { name: 'Advanced AI Tools', href: '/dashboard/ai-tools', icon: Brain },
   { name: 'Integrations', href: '/dashboard/integrations', icon: LinkIcon },
   { name: 'Calendar', href: '/dashboard/calendar', icon: Calendar },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },

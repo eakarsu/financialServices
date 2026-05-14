@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
+import { parsePaginationParams, buildPaginatedResponse } from '@/lib/pagination'
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,13 +19,20 @@ export async function GET(request: NextRequest) {
       where.dueDate = { gte: new Date() }
     }
 
-    const deadlines = await prisma.taxDeadline.findMany({
-      where,
-      orderBy: { dueDate: 'asc' },
-      take: upcoming ? 20 : undefined,
-    })
+    const pagination = parsePaginationParams(request, 'dueDate')
+    pagination.sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || 'asc'
 
-    return NextResponse.json(deadlines)
+    const [deadlines, total] = await Promise.all([
+      prisma.taxDeadline.findMany({
+        where,
+        orderBy: { [pagination.sortBy]: pagination.sortOrder },
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+      }),
+      prisma.taxDeadline.count({ where }),
+    ])
+
+    return NextResponse.json(buildPaginatedResponse(deadlines, total, pagination))
   } catch (error) {
     console.error('Get deadlines error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

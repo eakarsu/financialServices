@@ -1,64 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-3-haiku'
-
-// Helper function to extract JSON from AI response that might include markdown or extra text
-function extractJSON(text: string): string {
-  // Try to find JSON in markdown code blocks
-  const jsonBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\}|\[[\s\S]*?\])\s*```/)
-  if (jsonBlockMatch) {
-    return jsonBlockMatch[1]
-  }
-
-  // Try to find JSON object or array directly
-  const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
-  if (jsonMatch) {
-    return jsonMatch[1]
-  }
-
-  return text
-}
-
-async function callOpenRouter(prompt: string, systemPrompt?: string): Promise<string> {
-  if (!OPENROUTER_API_KEY) {
-    throw new Error('OpenRouter API key not configured')
-  }
-
-  const messages = [
-    ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-    { role: 'user', content: prompt }
-  ]
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.NEXTAUTH_URL || 'http://localhost:3000',
-      'X-Title': 'Financial Services AI Platform'
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages,
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`OpenRouter API error: ${error}`)
-  }
-
-  const data = await response.json()
-  const content = data.choices[0]?.message?.content || ''
-
-  // Extract JSON from the response
-  return extractJSON(content)
-}
+import {
+  AI_MODEL,
+  OPENROUTER_API_KEY,
+  aiRateLimiter,
+  callOpenRouter as callAI,
+  parseAIJson,
+  logAIResult,
+} from '@/lib/ai-utils'
 
 async function categorizeTransaction(description: string, amount: number): Promise<{ category: string; confidence: number; explanation: string }> {
   const systemPrompt = `You are a financial categorization expert for accounting firms. Analyze transactions and categorize them accurately.
@@ -85,16 +35,13 @@ Categories to choose from:
 - Interest Expense
 - Other Expenses`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    const result = JSON.parse(response)
-    return {
-      category: result.category || 'Other Expenses',
-      confidence: result.confidence || 0.8,
-      explanation: result.explanation || 'Categorized by AI'
-    }
-  } catch {
-    return { category: 'Other Expenses', confidence: 0.5, explanation: 'Default categorization' }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<{ category?: string; confidence?: number; explanation?: string }>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for categorization')
+  return {
+    category: parsed.category || 'Other Expenses',
+    confidence: parsed.confidence ?? 0.8,
+    explanation: parsed.explanation || 'Categorized by AI',
   }
 }
 
@@ -102,9 +49,9 @@ async function detectAnomalies(transactions: Array<{ id: string; amount: number;
   const systemPrompt = `You are a financial anomaly detection expert. Analyze transactions for unusual patterns, potential fraud, or errors.
 Return JSON array: [{"transactionId": "id", "reason": "explanation", "severity": "HIGH|MEDIUM|LOW"}]`
 
-  const transactionList = transactions.map(t =>
-    `ID: ${t.id}, Amount: $${t.amount}, Description: ${t.description}, Date: ${t.date}`
-  ).join('\n')
+  const transactionList = transactions
+    .map((t) => `ID: ${t.id}, Amount: $${t.amount}, Description: ${t.description}, Date: ${t.date}`)
+    .join('\n')
 
   const prompt = `Analyze these transactions for anomalies:
 ${transactionList}
@@ -116,14 +63,10 @@ Look for:
 - Weekend/holiday transactions
 - Round number patterns`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    console.log('Anomaly detection AI response:', response)
-    return JSON.parse(response)
-  } catch (error) {
-    console.error('Anomaly detection parse error:', error)
-    return []
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<Array<{ transactionId: string; reason: string; severity: string }>>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for anomaly detection')
+  return parsed
 }
 
 async function findDeductions(transactions: Array<{ category: string; amount: number; description: string }>): Promise<Array<{ category: string; amount: number; description: string; taxCode: string }>> {
@@ -145,17 +88,10 @@ Identify:
 - Business expense deductions
 - Home office deductions if applicable`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    return JSON.parse(response)
-  } catch {
-    return Object.entries(transactionSummary).map(([category, amount]) => ({
-      category,
-      amount,
-      description: `${category} expenses`,
-      taxCode: 'Various'
-    }))
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<Array<{ category: string; amount: number; description: string; taxCode: string }>>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for deductions')
+  return parsed
 }
 
 async function generateInsights(data: { revenue: number; expenses: number; profit: number; period: string }): Promise<Array<{ title: string; description: string; severity: string; recommendation?: string }>> {
@@ -174,20 +110,10 @@ Provide 3-5 key insights about:
 - Growth opportunities
 - Risk factors`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    console.log('Financial insights AI response:', response)
-    const parsed = JSON.parse(response)
-    console.log('Parsed insights:', parsed)
-    return parsed
-  } catch (error) {
-    console.error('Financial insights parse error:', error)
-    return [{
-      title: 'Analysis Available',
-      description: 'Financial data is available for review',
-      severity: 'INFO'
-    }]
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<Array<{ title: string; description: string; severity: string; recommendation?: string }>>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for insights')
+  return parsed
 }
 
 async function draftEmail(data: { clientName: string; topic: string; context: string; tone?: string }): Promise<{ subject: string; body: string }> {
@@ -207,15 +133,10 @@ Include:
 - Call to action if needed
 - Professional closing`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    return JSON.parse(response)
-  } catch {
-    return {
-      subject: `Regarding your ${data.topic}`,
-      body: `Dear ${data.clientName},\n\nI hope this email finds you well. I wanted to reach out regarding your ${data.topic}.\n\n${data.context}\n\nPlease let me know if you have any questions.\n\nBest regards`
-    }
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<{ subject: string; body: string }>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for email draft')
+  return parsed
 }
 
 async function processReceipt(data: { text: string; imageDescription?: string }): Promise<{ vendor: string; amount: number; date: string; category: string; items: Array<{ description: string; amount: number }> }> {
@@ -233,18 +154,10 @@ Extract:
 - Category of purchase
 - Individual line items if visible`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    return JSON.parse(response)
-  } catch {
-    return {
-      vendor: 'Unknown',
-      amount: 0,
-      date: new Date().toISOString().split('T')[0],
-      category: 'Other',
-      items: []
-    }
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<{ vendor: string; amount: number; date: string; category: string; items: Array<{ description: string; amount: number }> }>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for receipt')
+  return parsed
 }
 
 async function researchTax(query: string): Promise<{ answer: string; sources: string[]; confidence: number }> {
@@ -259,16 +172,10 @@ Provide:
 - Any important caveats or exceptions
 - Practical implications`
 
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    return JSON.parse(response)
-  } catch {
-    return {
-      answer: 'Please consult with a tax professional for this specific question.',
-      sources: [],
-      confidence: 0.5
-    }
-  }
+  const response = await callAI(prompt, systemPrompt)
+  const parsed = parseAIJson<{ answer: string; sources: string[]; confidence: number }>(response)
+  if (!parsed) throw new Error('AI response could not be parsed for tax research')
+  return parsed
 }
 
 // Map frontend types to database enum values
@@ -297,6 +204,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Per-user rate limiter: 20 AI calls per hour
+    const rl = aiRateLimiter(user.id)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          error: 'AI rate limit exceeded',
+          message: `Try again in ${Math.ceil(rl.resetIn / 60000)} minute(s)`,
+          remaining: rl.remaining,
+          resetIn: rl.resetIn,
+        },
+        { status: 429 }
+      )
+    }
+
+    if (!OPENROUTER_API_KEY) {
+      return NextResponse.json(
+        { error: 'AI service not configured', message: 'OPENROUTER_API_KEY missing' },
+        { status: 503 }
+      )
+    }
+
     const body = await request.json()
     requestType = body.type
     requestData = body.data
@@ -305,26 +233,30 @@ export async function POST(request: NextRequest) {
     let confidence = 0.85
 
     switch (requestType) {
-      case 'CATEGORIZE_TRANSACTION':
+      case 'CATEGORIZE_TRANSACTION': {
         const catResult = await categorizeTransaction(requestData.description as string, (requestData.amount as number) || 0)
         result = catResult
         confidence = catResult.confidence
         break
+      }
 
-      case 'DETECT_ANOMALIES':
+      case 'DETECT_ANOMALIES': {
         const anomalies = await detectAnomalies((requestData.transactions as Array<{ id: string; amount: number; description: string; date: string }>) || [])
         result = { anomalies }
         break
+      }
 
-      case 'FIND_DEDUCTIONS':
+      case 'FIND_DEDUCTIONS': {
         const deductions = await findDeductions((requestData.transactions as Array<{ category: string; amount: number; description: string }>) || [])
         result = { deductions }
         break
+      }
 
-      case 'GENERATE_INSIGHTS':
+      case 'GENERATE_INSIGHTS': {
         const insights = await generateInsights(requestData as { revenue: number; expenses: number; profit: number; period: string })
         result = { insights }
         break
+      }
 
       case 'DRAFT_EMAIL':
         result = await draftEmail(requestData as { clientName: string; topic: string; context: string; tone?: string })
@@ -334,14 +266,15 @@ export async function POST(request: NextRequest) {
         result = await processReceipt(requestData as { text: string; imageDescription?: string })
         break
 
-      case 'TAX_RESEARCH':
-        const research = await researchTax((requestData.query as string))
+      case 'TAX_RESEARCH': {
+        const research = await researchTax(requestData.query as string)
         result = research
         confidence = research.confidence
         break
+      }
 
-      case 'RECONCILE_BANK':
-        // Bank reconciliation logic
+      case 'RECONCILE_BANK': {
+        // Bank reconciliation logic (deterministic, no AI required)
         const { bankTransactions, bookTransactions } = requestData
         const matches: Array<{ bankId: string; bookId: string; confidence: number }> = []
         const unmatched = { bank: [] as string[], book: [] as string[] }
@@ -369,6 +302,7 @@ export async function POST(request: NextRequest) {
 
         result = { matches, unmatched, reconciled: matches.length, pending: unmatched.bank.length + unmatched.book.length }
         break
+      }
 
       default:
         return NextResponse.json({ error: 'Unknown analysis type' }, { status: 400 })
@@ -376,38 +310,37 @@ export async function POST(request: NextRequest) {
 
     const processingTime = Date.now() - startTime
 
-    // Log the analysis - map to correct enum type
-    await prisma.aIAnalysis.create({
-      data: {
-        type: mapTypeToEnum(requestType) as never,
-        input: requestData as any,
-        output: result as any,
-        confidence,
-        status: 'COMPLETED',
-        processingTime,
-      },
+    await logAIResult({
+      type: mapTypeToEnum(requestType),
+      input: requestData,
+      output: result,
+      confidence,
+      status: 'COMPLETED',
+      processingTime,
     })
 
-    return NextResponse.json(result)
+    return NextResponse.json({
+      ...result,
+      _meta: { model: AI_MODEL, processingTime, rateLimit: { remaining: rl.remaining, resetIn: rl.resetIn } },
+    })
   } catch (error) {
     console.error('AI analysis error:', error)
 
-    // Log failed analysis
-    try {
-      await prisma.aIAnalysis.create({
-        data: {
-          type: mapTypeToEnum(requestType) as never,
-          input: requestData as any,
-          output: { error: error instanceof Error ? error.message : 'Unknown error' } as any,
-          confidence: 0,
-          status: 'FAILED',
-          processingTime: Date.now() - startTime,
-        },
-      })
-    } catch (logError) {
-      console.error('Failed to log AI analysis error:', logError)
-    }
+    await logAIResult({
+      type: mapTypeToEnum(requestType),
+      input: requestData,
+      output: { error: error instanceof Error ? error.message : 'Unknown error' },
+      confidence: 0,
+      status: 'FAILED',
+      processingTime: Date.now() - startTime,
+    })
 
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: 'AI analysis failed',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    )
   }
 }
