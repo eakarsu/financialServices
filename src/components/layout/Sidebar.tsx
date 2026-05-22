@@ -28,6 +28,7 @@ const navigation = [
   { name: 'Tax Preparation', href: '/dashboard/tax', icon: Receipt },
   { name: 'Payroll', href: '/dashboard/payroll', icon: CreditCard },
   { name: 'Financial Reports', href: '/dashboard/reports', icon: BarChart3 },
+  { name: 'Client Profitability', href: '/dashboard/client-profitability', icon: DollarSign },
   { name: 'Practice Management', href: '/dashboard/practice', icon: Briefcase },
   { name: 'AI Features', href: '/dashboard/ai', icon: Brain },
   { name: 'Advanced AI Tools', href: '/dashboard/ai-tools', icon: Brain },
