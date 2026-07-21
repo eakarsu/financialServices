@@ -123,7 +123,9 @@ interface EmployeePayInput {
   filingStatus?: string   // SINGLE | MARRIED
   ytdSocialSecurityWages?: number  // year-to-date SS wages to enforce the wage base cap
   additionalWithholding?: number   // additional withholding per period (from W-4 Step 4c)
-  stateCode?: string               // future: state-specific rates
+  stateCode?: string
+  stateWithholdingAmount: number
+  stateWithholdingAuthority: string
 }
 
 /**
@@ -155,10 +157,12 @@ function calculateEmployeePayroll(emp: EmployeePayInput) {
     medicare += (excessAnnual / payPeriodsPerYear) * ADDITIONAL_MEDICARE_RATE
   }
 
-  // ---- State income tax — placeholder 5% until state-specific tables are added ----
-  // A production system should integrate each state's withholding tables.
-  const STATE_RATE_DEFAULT = 0.05
-  const stateTax = grossPay * STATE_RATE_DEFAULT
+  // State withholding is accepted only as evidence from an authoritative
+  // payroll/tax table integration; this app never invents a fallback rate.
+  if (!Number.isFinite(emp.stateWithholdingAmount) || emp.stateWithholdingAmount < 0 || !emp.stateWithholdingAuthority?.trim()) {
+    throw new Error('Authoritative state withholding amount and authority are required')
+  }
+  const stateTax = emp.stateWithholdingAmount
 
   // ---- Additional withholding (W-4 Step 4c) ----
   const additionalWithholding = emp.additionalWithholding ?? 0
@@ -190,6 +194,25 @@ export async function POST(request: NextRequest) {
     }
 
     const { clientId, payPeriodStart, payPeriodEnd, payDate, employees } = await request.json()
+
+    if (!clientId || !payPeriodStart || !payPeriodEnd || !payDate || !Array.isArray(employees) || employees.length === 0) {
+      return NextResponse.json({ error: 'Client, pay-period dates, pay date, and employees are required' }, { status: 400 })
+    }
+
+    const client = await prisma.client.findFirst({ where: { id: clientId, firmId: user.firmId }, select: { id: true } })
+    if (!client) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+    }
+
+    if (employees.some((employee: Partial<EmployeePayInput>) =>
+      !Number.isFinite(employee.stateWithholdingAmount) ||
+      (employee.stateWithholdingAmount as number) < 0 ||
+      !employee.stateWithholdingAuthority?.trim()
+    )) {
+      return NextResponse.json({
+        error: 'Each employee requires an authoritative state withholding amount and source',
+      }, { status: 422 })
+    }
 
     const items = (employees as EmployeePayInput[]).map((emp) => calculateEmployeePayroll(emp))
 

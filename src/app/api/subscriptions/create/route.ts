@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { createOrGetCustomer, createSubscription, stripe } from '@/lib/stripe'
+import { createOrGetCustomer, createSubscription, getStripeClient } from '@/lib/stripe'
 import prisma from '@/lib/prisma'
 
 /**
@@ -78,13 +78,13 @@ export async function POST(request: NextRequest) {
     let priceId = existingPriceId
     if (!priceId) {
       // Dynamically create a product + price for this recurring billing
-      const product = await stripe.products.create({
+      const product = await getStripeClient().products.create({
         name: `${clientName} — Recurring Services`,
         description,
         metadata: { clientId, firmId: user.firmId },
       })
 
-      const price = await stripe.prices.create({
+      const price = await getStripeClient().prices.create({
         product: product.id,
         unit_amount: Math.round(Number(amount) * 100),
         currency: 'usd',

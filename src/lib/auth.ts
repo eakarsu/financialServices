@@ -2,8 +2,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { cookies } from 'next/headers'
 import prisma from './prisma'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
+import { requireSecret } from './secrets'
 
 export interface JWTPayload {
   userId: string
@@ -21,12 +20,12 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 }
 
 export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+  return jwt.sign(payload, requireSecret('JWT_SECRET'), { expiresIn: '7d' })
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload
+    return jwt.verify(token, requireSecret('JWT_SECRET')) as JWTPayload
   } catch {
     return null
   }
@@ -46,7 +45,7 @@ export async function getCurrentUser() {
     include: { firm: true }
   })
 
-  return user
+  return user?.isActive ? user : null
 }
 
 export async function requireAuth() {
@@ -58,13 +57,15 @@ export async function requireAuth() {
 }
 
 export function setAuthCookie(token: string) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
   return {
-    'Set-Cookie': `auth-token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`
+    'Set-Cookie': `auth-token=${token}; Path=/; HttpOnly; SameSite=Strict${secure}; Max-Age=${60 * 60 * 24 * 7}`
   }
 }
 
 export function clearAuthCookie() {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
   return {
-    'Set-Cookie': 'auth-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
+    'Set-Cookie': `auth-token=; Path=/; HttpOnly; SameSite=Strict${secure}; Max-Age=0`
   }
 }

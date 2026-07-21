@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verify } from 'jsonwebtoken'
 import { Permission, hasPermission } from '@/lib/permissions'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
+import { requireSecret } from '@/lib/secrets'
 
 export interface AuthUser {
   id: string
@@ -20,7 +19,7 @@ export function requireAuth(handler: (req: NextRequest, user: AuthUser) => Promi
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
-      const decoded = verify(token, JWT_SECRET) as AuthUser
+      const decoded = verify(token, requireSecret('JWT_SECRET')) as AuthUser
       return handler(req, decoded)
     } catch (error) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })

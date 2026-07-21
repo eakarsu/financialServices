@@ -2,47 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-3-haiku'
-
-// ---------- AI helper ----------
-
-function extractJSON(text: string): string {
-  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\}|\[[\s\S]*?\])\s*```/)
-  if (codeBlock) return codeBlock[1]
-  const direct = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
-  if (direct) return direct[1]
-  return text
-}
-
-async function callOpenRouter(prompt: string, systemPrompt?: string): Promise<string> {
-  if (!OPENROUTER_API_KEY) throw new Error('OpenRouter API key not configured')
-
-  const messages = [
-    ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-    { role: 'user', content: prompt },
-  ]
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.NEXTAUTH_URL || 'http://localhost:3000',
-      'X-Title': 'Financial Services AI Platform',
-    },
-    body: JSON.stringify({ model: OPENROUTER_MODEL, messages, temperature: 0.7, max_tokens: 1500 }),
-  })
-
-  if (!response.ok) {
-    const err = await response.text()
-    throw new Error(`OpenRouter API error: ${err}`)
-  }
-
-  const data = await response.json()
-  return extractJSON(data.choices[0]?.message?.content || '')
-}
-
 // ---------- Scoring algorithm ----------
 
 interface ScoreComponents {
@@ -81,45 +40,22 @@ function computeHealthScore(c: ScoreComponents): number {
   return Math.round(ierScore + srScore + dtiScore + efScore)
 }
 
-// ---------- AI narrative + recommendations ----------
-
-async function generateNarrativeAndRecommendations(
+// Deterministic narrative and thresholds. These are decision-support outputs,
+// not personalized financial advice, and contain no generative model output.
+function generateNarrativeAndRecommendations(
   score: number,
   components: ScoreComponents,
   clientType: string
-): Promise<{ narrative: string; recommendations: string[] }> {
-  const systemPrompt = `You are a senior financial advisor at a CPA firm. Provide a concise, professional financial health assessment. Return JSON only: {"narrative": "2-3 sentence assessment", "recommendations": ["recommendation 1", "recommendation 2", "recommendation 3"]}`
-
-  const prompt = `Client financial health score: ${score}/100
-
-Components:
-- Income-to-Expense Ratio: ${components.incomeExpenseRatio.toFixed(2)} (healthy > 1.2)
-- Savings Rate: ${(components.savingsRate * 100).toFixed(1)}% (healthy > 20%)
-- Debt-to-Income Ratio: ${(components.debtToIncome * 100).toFixed(1)}% (healthy < 36%)
-- Emergency Fund: ${components.emergencyFundMonths.toFixed(1)} months (healthy > 3)
-- Client type: ${clientType}
-
-Provide a 2-3 sentence narrative and exactly 3 specific, actionable recommendations.`
-
-  try {
-    const response = await callOpenRouter(prompt, systemPrompt)
-    const parsed = JSON.parse(response)
-    return {
-      narrative: parsed.narrative || 'Financial health assessment unavailable.',
-      recommendations: Array.isArray(parsed.recommendations)
-        ? parsed.recommendations.slice(0, 3)
-        : ['Review spending patterns.', 'Build emergency savings.', 'Reduce debt obligations.'],
-    }
-  } catch (error) {
-    console.error('Health score AI generation error:', error)
-    return {
-      narrative: `The client has a financial health score of ${score}/100. Review the component metrics for detailed insights.`,
-      recommendations: [
-        'Review income-to-expense ratio and identify cost reduction opportunities.',
-        'Establish or increase emergency fund to cover 3-6 months of expenses.',
-        'Develop a debt reduction plan targeting high-interest obligations first.',
-      ],
-    }
+): { narrative: string; recommendations: string[] } {
+  const recommendations: string[] = []
+  if (components.incomeExpenseRatio < 1.2) recommendations.push('Review verified income and expense records; investigate an income-to-expense ratio below 1.20.')
+  if (components.savingsRate < 0.2) recommendations.push('Review a documented cash plan targeting a savings rate of at least 20%.')
+  if (components.debtToIncome > 0.36) recommendations.push('Have a qualified reviewer assess obligations because measured debt-to-income exceeds 36%.')
+  if (components.emergencyFundMonths < 3) recommendations.push('Review a documented liquidity plan targeting at least three months of verified expenses.')
+  if (recommendations.length === 0) recommendations.push('Reconcile the source records and have a qualified professional confirm that current thresholds remain appropriate.')
+  return {
+    narrative: `${clientType} rules-based financial health score: ${score}/100. This deterministic screening result must be reviewed against source records by a qualified professional before action.`,
+    recommendations: recommendations.slice(0, 3),
   }
 }
 

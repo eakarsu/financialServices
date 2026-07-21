@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { Suspense, useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Plus, Search, Filter, FileText, Folder, Download, Trash2,
@@ -77,7 +77,7 @@ const documentTypes = [
   { value: 'OTHER', label: 'Other' },
 ]
 
-export default function DocumentsPage() {
+function DocumentsContent() {
   const searchParams = useSearchParams()
   const clientParam = searchParams.get('client')
   const { toast } = useToast()
@@ -96,6 +96,7 @@ export default function DocumentsPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   // Pagination and sort state
   const [page, setPage] = useState(1)
@@ -189,18 +190,18 @@ export default function DocumentsPage() {
     setSubmitting(true)
 
     try {
-      // In production, you would upload the file to storage first
-      const res = await fetch('/api/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...uploadForm,
-          fileUrl: '/uploads/placeholder.pdf', // Placeholder
-          fileSize: 1024,
-          mimeType: 'application/pdf',
-          status: 'DRAFT',
-        }),
-      })
+      if (!selectedFile) {
+        toast('Choose a document file first.', 'error')
+        return
+      }
+      const body = new FormData()
+      body.set('file', selectedFile)
+      body.set('name', uploadForm.name)
+      body.set('type', uploadForm.type)
+      body.set('description', uploadForm.description)
+      body.set('clientId', uploadForm.clientId)
+      body.set('taxYear', String(uploadForm.taxYear))
+      const res = await fetch('/api/upload', { method: 'POST', body })
 
       if (res.ok) {
         toast('Document uploaded successfully.', 'success')
@@ -212,6 +213,7 @@ export default function DocumentsPage() {
           clientId: '',
           taxYear: new Date().getFullYear(),
         })
+        setSelectedFile(null)
         fetchDocuments()
       } else {
         toast('Failed to upload document. Please try again.', 'error')
@@ -263,7 +265,7 @@ export default function DocumentsPage() {
     try {
       const res = await fetch(`/api/documents/${confirmDialog.documentId}`, { method: 'DELETE' })
       if (res.ok) {
-        toast('Document deleted successfully.', 'success')
+        toast('Document archived successfully.', 'success')
         // Close the detail modal if the deleted doc is currently open
         if (selectedDoc && selectedDoc.id === confirmDialog.documentId) {
           setShowDetailsModal(false)
@@ -494,7 +496,7 @@ export default function DocumentsPage() {
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="sm" className="p-1" title="Download">
+                          <Button variant="ghost" size="sm" className="p-1" title="Download" onClick={() => window.location.assign(doc.fileUrl)}>
                             <Download className="h-4 w-4" />
                           </Button>
                           <Button
@@ -551,9 +553,9 @@ export default function DocumentsPage() {
         isOpen={confirmDialog.isOpen}
         onClose={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
-        title="Delete Document"
-        message="Are you sure you want to delete this document? This action cannot be undone."
-        confirmText="Delete"
+        title="Archive Document"
+        message="Archive this document? Immutable versions and audit evidence are retained, and active legal holds block archival."
+        confirmText="Archive"
         cancelText="Cancel"
         variant="danger"
         loading={deleting}
@@ -566,10 +568,17 @@ export default function DocumentsPage() {
             <Upload className="h-12 w-12 mx-auto text-secondary-400 mb-4" />
             <p className="text-secondary-600 mb-2">Drag and drop files here, or click to browse</p>
             <p className="text-xs text-secondary-400">PDF, DOC, XLS, JPG, PNG up to 10MB</p>
-            <input type="file" className="hidden" />
-            <Button type="button" variant="secondary" size="sm" className="mt-4">
-              Browse Files
-            </Button>
+            <input
+              type="file"
+              className="mt-4 block w-full text-sm"
+              accept=".pdf,.docx,.xlsx,.csv,.txt,.jpg,.jpeg,.png"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null
+                setSelectedFile(file)
+                if (file && !uploadForm.name) setUploadForm({ ...uploadForm, name: file.name })
+              }}
+              required
+            />
           </div>
 
           <Input
@@ -806,5 +815,13 @@ export default function DocumentsPage() {
         )}
       </Modal>
     </div>
+  )
+}
+
+export default function DocumentsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-secondary-600">Loading documents…</div>}>
+      <DocumentsContent />
+    </Suspense>
   )
 }

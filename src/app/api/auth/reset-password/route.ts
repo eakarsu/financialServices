@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import { hashPassword } from '@/lib/auth'
 import { parseAndValidateBody } from '@/lib/api-helpers'
 import { resetPasswordSchema } from '@/lib/validation'
+import { tokenDigest } from '@/lib/tokens'
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.findFirst({
       where: {
-        passwordResetToken: token,
+        passwordResetToken: tokenDigest(token),
         passwordResetExpiry: { gt: new Date() },
       },
     })

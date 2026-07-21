@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
 import prisma from '@/lib/prisma'
 import { hashPassword, generateToken, setAuthCookie } from '@/lib/auth'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { parseAndValidateBody } from '@/lib/api-helpers'
 import { registerSchema } from '@/lib/validation'
+import { createOpaqueToken, tokenDigest } from '@/lib/tokens'
+import { sendEmail } from '@/lib/email'
+import { requireConfig } from '@/lib/secrets'
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const hashedPassword = await hashPassword(password)
-    const emailVerificationToken = crypto.randomBytes(32).toString('hex')
+    const emailVerificationToken = createOpaqueToken()
     const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
 
     const firm = await prisma.firm.create({
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
         role: 'ADMIN',
         firmId: firm.id,
         emailVerified: false,
-        emailVerificationToken,
+        emailVerificationToken: tokenDigest(emailVerificationToken),
         emailVerificationExpiry,
       },
       include: { firm: true },
@@ -99,9 +101,11 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // In production, send verification email
-    // await sendEmail({ to: email, subject: 'Verify Email', body: `Verify: /verify-email?token=${emailVerificationToken}` })
-    console.log(`Email verification token for ${email}: ${emailVerificationToken}`)
+    await sendEmail({
+      to: email,
+      subject: 'Verify your email',
+      text: `Verify your account: ${requireConfig('APP_BASE_URL')}/verify-email?token=${encodeURIComponent(emailVerificationToken)}`,
+    })
 
     const token = generateToken({
       userId: user.id,

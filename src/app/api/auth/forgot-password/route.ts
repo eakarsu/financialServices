@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
 import prisma from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { parseAndValidateBody } from '@/lib/api-helpers'
 import { resetPasswordRequestSchema } from '@/lib/validation'
+import { createOpaqueToken, tokenDigest } from '@/lib/tokens'
+import { sendEmail } from '@/lib/email'
+import { requireConfig } from '@/lib/secrets'
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,20 +28,22 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.findUnique({ where: { email } })
 
     if (user) {
-      const token = crypto.randomBytes(32).toString('hex')
+      const token = createOpaqueToken()
       const expiry = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
 
       await prisma.user.update({
         where: { id: user.id },
         data: {
-          passwordResetToken: token,
+          passwordResetToken: tokenDigest(token),
           passwordResetExpiry: expiry,
         },
       })
 
-      // In production, send email with reset link
-      // await sendEmail({ to: email, subject: 'Password Reset', body: `Reset link: /reset-password?token=${token}` })
-      console.log(`Password reset token for ${email}: ${token}`)
+      await sendEmail({
+        to: email,
+        subject: 'Reset your password',
+        text: `Reset your password: ${requireConfig('APP_BASE_URL')}/reset-password?token=${encodeURIComponent(token)}`,
+      })
     }
 
     // Always return success to prevent email enumeration

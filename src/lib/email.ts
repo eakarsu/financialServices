@@ -1,25 +1,12 @@
 import sgMail from '@sendgrid/mail'
 import nodemailer from 'nodemailer'
+import { requireConfig } from './secrets'
 
-// Email configuration
-const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || 'smtp' // 'sendgrid' or 'smtp'
-
-// SendGrid configuration
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || ''
-if (EMAIL_PROVIDER === 'sendgrid' && SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY)
+function emailProvider(): 'sendgrid' | 'smtp' {
+  const provider = requireConfig('EMAIL_PROVIDER')
+  if (provider !== 'sendgrid' && provider !== 'smtp') throw new Error('EMAIL_PROVIDER must be sendgrid or smtp')
+  return provider
 }
-
-// SMTP configuration
-const smtpTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
-  },
-})
 
 export interface EmailOptions {
   to: string | string[]
@@ -41,9 +28,9 @@ export interface EmailOptions {
  * Send email using configured provider
  */
 export async function sendEmail(options: EmailOptions): Promise<void> {
-  const from = options.from || process.env.EMAIL_FROM || 'noreply@financialservices.com'
+  const from = options.from || requireConfig('EMAIL_FROM')
 
-  if (EMAIL_PROVIDER === 'sendgrid') {
+  if (emailProvider() === 'sendgrid') {
     await sendEmailViaSendGrid({ ...options, from })
   } else {
     await sendEmailViaSMTP({ ...options, from })
@@ -54,6 +41,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
  * Send email via SendGrid
  */
 async function sendEmailViaSendGrid(options: EmailOptions): Promise<void> {
+  sgMail.setApiKey(requireConfig('SENDGRID_API_KEY'))
   const msg = {
     to: options.to,
     from: options.from!,
@@ -78,7 +66,15 @@ async function sendEmailViaSendGrid(options: EmailOptions): Promise<void> {
  * Send email via SMTP
  */
 async function sendEmailViaSMTP(options: EmailOptions): Promise<void> {
-  await smtpTransporter.sendMail({
+  const transporter = nodemailer.createTransport({
+    host: requireConfig('SMTP_HOST'),
+    port: Number.parseInt(requireConfig('SMTP_PORT'), 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user: requireConfig('SMTP_USER'), pass: requireConfig('SMTP_PASS') },
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  })
+  await transporter.sendMail({
     from: options.from,
     to: options.to,
     subject: options.subject,

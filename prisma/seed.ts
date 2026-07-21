@@ -495,44 +495,6 @@ async function main() {
     })
   }
 
-  // Create 20+ documents
-  const documents = [
-    { id: 'doc-001', name: 'W-2 Form 2024', type: 'W2', category: 'Tax Documents', fileSize: 245000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-001' },
-    { id: 'doc-002', name: '1099-INT Statement', type: 'W2', category: 'Tax Documents', fileSize: 125000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-001' },
-    { id: 'doc-003', name: 'Bank Statement Nov 2024', type: 'BANK_STATEMENT', category: 'Financial', fileSize: 567000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-001' },
-    { id: 'doc-004', name: 'Profit & Loss Statement', type: 'FINANCIAL_STATEMENT', category: 'Financial', fileSize: 345000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-003' },
-    { id: 'doc-005', name: 'Articles of Incorporation', type: 'OTHER', category: 'Legal', fileSize: 890000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-003' },
-    { id: 'doc-006', name: 'Insurance Certificate', type: 'OTHER', category: 'Insurance', fileSize: 234000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-005' },
-    { id: 'doc-007', name: 'Payroll Summary Q3', type: 'OTHER', category: 'Payroll', fileSize: 456000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-001' },
-    { id: 'doc-008', name: 'Tax Return 2023', type: 'TAX_RETURN', category: 'Tax Documents', fileSize: 1234000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-002' },
-    { id: 'doc-009', name: 'Receipt - Office Supplies', type: 'RECEIPT', category: 'Expenses', fileSize: 89000, mimeType: 'image/jpeg', status: 'APPROVED', clientId: 'client-007' },
-    { id: 'doc-010', name: 'Lease Agreement', type: 'CONTRACT', category: 'Legal', fileSize: 678000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-010' },
-    { id: 'doc-011', name: 'Balance Sheet Q4', type: 'FINANCIAL_STATEMENT', category: 'Financial', fileSize: 234000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-008' },
-    { id: 'doc-012', name: 'Employee Handbook', type: 'OTHER', category: 'HR', fileSize: 2345000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-020' },
-    { id: 'doc-013', name: 'Vendor Contract', type: 'CONTRACT', category: 'Legal', fileSize: 456000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-008' },
-    { id: 'doc-014', name: 'Medical License', type: 'OTHER', category: 'Legal', fileSize: 123000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-013' },
-    { id: 'doc-015', name: 'Depreciation Schedule', type: 'FINANCIAL_STATEMENT', category: 'Financial', fileSize: 345000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-001' },
-    { id: 'doc-016', name: 'Bank Statement Oct 2024', type: 'BANK_STATEMENT', category: 'Financial', fileSize: 543000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-003' },
-    { id: 'doc-017', name: 'Health Insurance Policy', type: 'OTHER', category: 'Insurance', fileSize: 789000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-018' },
-    { id: 'doc-018', name: 'Quarterly Tax Payment', type: 'W2', category: 'Tax Documents', fileSize: 156000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-006' },
-    { id: 'doc-019', name: 'Operating Agreement', type: 'OTHER', category: 'Legal', fileSize: 567000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-005' },
-    { id: 'doc-020', name: 'Client Engagement Letter', type: 'CONTRACT', category: 'Legal', fileSize: 234000, mimeType: 'application/pdf', status: 'APPROVED', clientId: 'client-015' },
-  ]
-
-  for (const doc of documents) {
-    await prisma.document.upsert({
-      where: { id: doc.id },
-      update: {},
-      create: {
-        ...doc,
-        type: doc.type as 'TAX_RETURN' | 'FINANCIAL_STATEMENT' | 'BANK_STATEMENT' | 'RECEIPT' | 'INVOICE' | 'CONTRACT' | 'ENGAGEMENT_LETTER' | 'W2' | 'W9' | 'FORM_1099' | 'K1' | 'OTHER',
-        status: doc.status as 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'SIGNED' | 'ARCHIVED',
-        fileUrl: `/documents/${doc.id}`,
-        uploadedById: 'user-001',
-      },
-    })
-  }
-
   // Create integrations
   const integrations = [
     { id: 'int-001', type: 'QUICKBOOKS', status: 'CONNECTED', lastSyncAt: new Date() },
@@ -798,16 +760,12 @@ async function main() {
   console.log('  - 20 Tasks')
   console.log('  - 20 Time Entries')
   console.log('  - 15 Invoices')
-  console.log('  - 20 Documents')
   console.log('  - 5 Integrations')
   console.log('  - 15 Report Templates')
   console.log('  - 15 Document Request Templates')
   console.log('  - 15 Tax Checklist Templates')
   console.log('  - 18 Service Items')
   console.log('')
-  console.log('Demo Credentials:')
-  console.log('  Email: admin@example.com')
-  console.log('  Password: password123')
 }
 
 main()

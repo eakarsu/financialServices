@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { DollarSign, ArrowLeft, CheckCircle } from 'lucide-react'
@@ -22,7 +22,7 @@ function getPasswordStrength(password: string): { score: number; label: string; 
   return { score, label: 'Strong', color: 'bg-green-500' }
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams()
   const token = searchParams.get('token') || ''
   const [password, setPassword] = useState('')
@@ -142,5 +142,13 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading reset form…</div>}>
+      <ResetPasswordContent />
+    </Suspense>
   )
 }

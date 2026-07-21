@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// Env-driven CORS allowlist (comma-separated origins). Falls back to '*' in dev.
+// Env-driven CORS allowlist (comma-separated origins). An empty list denies
+// cross-origin API access.
 function getAllowedOrigins(): string[] {
   const raw = process.env.CORS_ALLOWED_ORIGINS || ''
   return raw
@@ -12,7 +13,7 @@ function getAllowedOrigins(): string[] {
 
 function originAllowed(origin: string | null, allowed: string[]): string | null {
   if (!origin) return null
-  if (allowed.length === 0) return '*'
+  if (allowed.length === 0) return null
   if (allowed.includes('*')) return '*'
   if (allowed.includes(origin)) return origin
   return null
@@ -42,7 +43,7 @@ export function middleware(request: NextRequest) {
   )
   response.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://openrouter.ai https://api.stripe.com https://*.plaid.com"
+    `default-src 'self'; script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.stripe.com https://*.plaid.com`
   )
 
   // CORS — only for /api routes

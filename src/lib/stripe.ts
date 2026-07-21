@@ -1,12 +1,15 @@
 import Stripe from 'stripe'
+import { requireSecret } from './secrets'
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || ''
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || ''
+let stripeClient: Stripe | undefined
 
-export const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: '2025-11-17.clover',
-  typescript: true,
-})
+export function getStripeClient(): Stripe {
+  stripeClient ??= new Stripe(requireSecret('STRIPE_SECRET_KEY', 16), {
+    apiVersion: '2026-02-25.clover',
+    typescript: true,
+  })
+  return stripeClient
+}
 
 export interface PaymentIntentOptions {
   amount: number // in cents
@@ -21,7 +24,7 @@ export interface PaymentIntentOptions {
  * Create a payment intent for invoice payment
  */
 export async function createPaymentIntent(options: PaymentIntentOptions): Promise<Stripe.PaymentIntent> {
-  const paymentIntent = await stripe.paymentIntents.create({
+  const paymentIntent = await getStripeClient().paymentIntents.create({
     amount: Math.round(options.amount * 100), // Convert to cents
     currency: options.currency || 'usd',
     customer: options.customerId,
@@ -47,7 +50,7 @@ export async function createOrGetCustomer(
   metadata?: Record<string, string>
 ): Promise<Stripe.Customer> {
   // Check if customer exists
-  const existingCustomers = await stripe.customers.list({
+  const existingCustomers = await getStripeClient().customers.list({
     email,
     limit: 1,
   })
@@ -57,7 +60,7 @@ export async function createOrGetCustomer(
   }
 
   // Create new customer
-  return await stripe.customers.create({
+  return await getStripeClient().customers.create({
     email,
     name,
     metadata,
@@ -75,7 +78,7 @@ export async function createCheckoutSession(
   successUrl: string,
   cancelUrl: string
 ): Promise<Stripe.Checkout.Session> {
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripeClient().checkout.sessions.create({
     payment_method_types: ['card'],
     line_items: [
       {
@@ -108,7 +111,7 @@ export async function createCheckoutSession(
  * Refund a payment
  */
 export async function refundPayment(paymentIntentId: string, amount?: number): Promise<Stripe.Refund> {
-  return await stripe.refunds.create({
+  return await getStripeClient().refunds.create({
     payment_intent: paymentIntentId,
     amount: amount ? Math.round(amount * 100) : undefined,
   })
@@ -118,14 +121,14 @@ export async function refundPayment(paymentIntentId: string, amount?: number): P
  * Retrieve payment intent
  */
 export async function getPaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent> {
-  return await stripe.paymentIntents.retrieve(paymentIntentId)
+  return await getStripeClient().paymentIntents.retrieve(paymentIntentId)
 }
 
 /**
  * List all charges for a customer
  */
 export async function getCustomerCharges(customerId: string, limit = 10): Promise<Stripe.Charge[]> {
-  const charges = await stripe.charges.list({
+  const charges = await getStripeClient().charges.list({
     customer: customerId,
     limit,
   })
@@ -140,7 +143,7 @@ export async function createSubscription(
   priceId: string,
   metadata?: Record<string, string>
 ): Promise<Stripe.Subscription> {
-  return await stripe.subscriptions.create({
+  return await getStripeClient().subscriptions.create({
     customer: customerId,
     items: [{ price: priceId }],
     metadata,
@@ -151,14 +154,14 @@ export async function createSubscription(
  * Cancel a subscription
  */
 export async function cancelSubscription(subscriptionId: string): Promise<Stripe.Subscription> {
-  return await stripe.subscriptions.cancel(subscriptionId)
+  return await getStripeClient().subscriptions.cancel(subscriptionId)
 }
 
 /**
  * Construct webhook event from request
  */
 export function constructWebhookEvent(payload: string | Buffer, signature: string): Stripe.Event {
-  return stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET)
+  return getStripeClient().webhooks.constructEvent(payload, signature, requireSecret('STRIPE_WEBHOOK_SECRET', 16))
 }
 
 /**
@@ -169,18 +172,18 @@ export async function createPaymentLink(
   amount: number,
   description: string
 ): Promise<Stripe.PaymentLink> {
-  const product = await stripe.products.create({
+  const product = await getStripeClient().products.create({
     name: `Invoice #${invoiceId}`,
     description,
   })
 
-  const price = await stripe.prices.create({
+  const price = await getStripeClient().prices.create({
     product: product.id,
     unit_amount: Math.round(amount * 100),
     currency: 'usd',
   })
 
-  return await stripe.paymentLinks.create({
+  return await getStripeClient().paymentLinks.create({
     line_items: [
       {
         price: price.id,

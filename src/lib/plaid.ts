@@ -1,27 +1,31 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid'
+import { requireConfig } from './secrets'
 
-const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID || ''
-const PLAID_SECRET = process.env.PLAID_SECRET || ''
-const PLAID_ENV = process.env.PLAID_ENV || 'sandbox' // sandbox, development, or production
+let plaidClient: PlaidApi | undefined
 
-const configuration = new Configuration({
-  basePath: PlaidEnvironments[PLAID_ENV as keyof typeof PlaidEnvironments],
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': PLAID_CLIENT_ID,
-      'PLAID-SECRET': PLAID_SECRET,
+function getPlaidClient(): PlaidApi {
+  if (plaidClient) return plaidClient
+  const environment = requireConfig('PLAID_ENV')
+  const basePath = PlaidEnvironments[environment as keyof typeof PlaidEnvironments]
+  if (!basePath) throw new Error('PLAID_ENV must be sandbox, development, or production')
+  plaidClient = new PlaidApi(new Configuration({
+    basePath,
+    baseOptions: {
+      headers: {
+        'PLAID-CLIENT-ID': requireConfig('PLAID_CLIENT_ID'),
+        'PLAID-SECRET': requireConfig('PLAID_SECRET'),
+      },
     },
-  },
-})
-
-export const plaidClient = new PlaidApi(configuration)
+  }))
+  return plaidClient
+}
 
 /**
  * Create a link token for Plaid Link
  */
 export async function createLinkToken(userId: string, clientName: string) {
   try {
-    const response = await plaidClient.linkTokenCreate({
+    const response = await getPlaidClient().linkTokenCreate({
       user: {
         client_user_id: userId,
       },
@@ -29,7 +33,7 @@ export async function createLinkToken(userId: string, clientName: string) {
       products: [Products.Transactions, Products.Auth],
       country_codes: [CountryCode.Us],
       language: 'en',
-      webhook: `${process.env.NEXTAUTH_URL}/api/webhooks/plaid`,
+      webhook: `${requireConfig('APP_BASE_URL')}/api/webhooks/plaid`,
     })
 
     return response.data
@@ -44,7 +48,7 @@ export async function createLinkToken(userId: string, clientName: string) {
  */
 export async function exchangePublicToken(publicToken: string) {
   try {
-    const response = await plaidClient.itemPublicTokenExchange({
+    const response = await getPlaidClient().itemPublicTokenExchange({
       public_token: publicToken,
     })
 
@@ -63,7 +67,7 @@ export async function exchangePublicToken(publicToken: string) {
  */
 export async function getAccounts(accessToken: string) {
   try {
-    const response = await plaidClient.accountsBalanceGet({
+    const response = await getPlaidClient().accountsBalanceGet({
       access_token: accessToken,
     })
 
@@ -83,7 +87,7 @@ export async function getTransactions(
   endDate: string
 ) {
   try {
-    const response = await plaidClient.transactionsGet({
+    const response = await getPlaidClient().transactionsGet({
       access_token: accessToken,
       start_date: startDate,
       end_date: endDate,
@@ -109,7 +113,7 @@ export async function getTransactions(
  */
 export async function syncTransactions(accessToken: string, cursor?: string) {
   try {
-    const response = await plaidClient.transactionsSync({
+    const response = await getPlaidClient().transactionsSync({
       access_token: accessToken,
       cursor: cursor,
     })
@@ -132,7 +136,7 @@ export async function syncTransactions(accessToken: string, cursor?: string) {
  */
 export async function getInstitution(institutionId: string) {
   try {
-    const response = await plaidClient.institutionsGetById({
+    const response = await getPlaidClient().institutionsGetById({
       institution_id: institutionId,
       country_codes: [CountryCode.Us],
     })
@@ -149,7 +153,7 @@ export async function getInstitution(institutionId: string) {
  */
 export async function removeItem(accessToken: string) {
   try {
-    const response = await plaidClient.itemRemove({
+    const response = await getPlaidClient().itemRemove({
       access_token: accessToken,
     })
 
@@ -165,7 +169,7 @@ export async function removeItem(accessToken: string) {
  */
 export async function getAuthData(accessToken: string) {
   try {
-    const response = await plaidClient.authGet({
+    const response = await getPlaidClient().authGet({
       access_token: accessToken,
     })
 
@@ -184,7 +188,7 @@ export async function getAuthData(accessToken: string) {
  */
 export async function createProcessorToken(accessToken: string, accountId: string, processor: string) {
   try {
-    const response = await plaidClient.processorTokenCreate({
+    const response = await getPlaidClient().processorTokenCreate({
       access_token: accessToken,
       account_id: accountId,
       processor: processor as never,
