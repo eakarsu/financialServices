@@ -3,10 +3,16 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
+function requireDemoPassword() {
+  const password = process.env.DEMO_PASSWORD || process.env.SEED_DEMO_PASSWORD || process.env.DEMO_SEED_PASSWORD || '';
+  if (password.length < 12 || password.length > 1024) throw new Error('DEMO_PASSWORD must contain 12-1024 characters');
+  return password;
+}
+
 async function main() {
   console.log('Seeding database with comprehensive sample data...')
 
-  const hashedPassword = await bcrypt.hash('password123', 12)
+  const hashedPassword = await bcrypt.hash(requireDemoPassword(), 12)
   const currentYear = new Date().getFullYear()
 
   // Create firm
