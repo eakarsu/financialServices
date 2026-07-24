@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button'
 import Card, { CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import Badge from '@/components/ui/Badge'
 import { formatDate } from '@/lib/utils'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface TaxDeadline {
   id: string
@@ -39,8 +40,12 @@ export default function CalendarPage() {
         fetch('/api/tax/deadlines'),
         fetch('/api/practice/tasks'),
       ])
-      setDeadlines(await deadlinesRes.json())
-      setTasks(await tasksRes.json())
+      const [deadlinesData, tasksData] = await Promise.all([
+        deadlinesRes.json(),
+        tasksRes.json(),
+      ])
+      setDeadlines(collectionFromResponse<TaxDeadline>(deadlinesData))
+      setTasks(collectionFromResponse<Task>(tasksData))
     } catch (error) {
       console.error('Error fetching calendar data:', error)
     }

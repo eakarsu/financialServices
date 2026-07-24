@@ -20,6 +20,7 @@ import Pagination from '@/components/ui/Pagination'
 import SortableHeader from '@/components/ui/SortableHeader'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface Transaction {
   id: string
@@ -178,9 +179,14 @@ export default function BookkeepingPage() {
       setTransactions(txData.data)
       setPagination(txData.pagination)
 
-      setBankAccounts(await bankRes.json())
-      setChartOfAccounts(await coaRes.json())
-      setClients(await clientRes.json())
+      const [bankData, chartData, clientData] = await Promise.all([
+        bankRes.json(),
+        coaRes.json(),
+        clientRes.json(),
+      ])
+      setBankAccounts(collectionFromResponse<BankAccount>(bankData))
+      setChartOfAccounts(collectionFromResponse<ChartOfAccount>(chartData))
+      setClients(collectionFromResponse<Client>(clientData))
     } catch (error) {
       toast('Failed to load bookkeeping data. Please try again.', 'error')
     } finally {

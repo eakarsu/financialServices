@@ -14,7 +14,32 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingDemoCredentials, setLoadingDemoCredentials] = useState(false)
   const { toast } = useToast()
+
+  const handleFillDemoCredentials = async () => {
+    setError('')
+    setLoadingDemoCredentials(true)
+
+    try {
+      const res = await fetch('/api/auth/demo-credentials', { cache: 'no-store' })
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Demo credentials are unavailable')
+      }
+
+      setEmail(data.email)
+      setPassword(data.password)
+      toast('Demo credentials filled', 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Demo credentials are unavailable'
+      setError(message)
+      toast(message, 'error')
+    } finally {
+      setLoadingDemoCredentials(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -95,6 +120,16 @@ export default function LoginPage() {
                 </Link>
               </div>
             </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              loading={loadingDemoCredentials}
+              onClick={handleFillDemoCredentials}
+            >
+              Auto Fill Demo Credentials
+            </Button>
 
             <Button type="submit" className="w-full" loading={loading}>
               Sign In

@@ -19,10 +19,20 @@ if [ "${#JWT_SECRET}" -lt 32 ]; then
   exit 1
 fi
 
-# Schema changes remain an explicit provisioning step. Bare startup never
-# creates, resets, pushes, seeds, or mutates a database unless opted in.
+# Schema changes remain an explicit provisioning step.
 if [ "${ALLOW_SCHEMA_MIGRATION:-0}" = "1" ]; then
   npm run db:migrate
+fi
+
+# Local demo credentials are generated in memory and synchronized with three
+# demo users. Nothing is written to a tracked file, and production is opt-in.
+if [ "${NODE_ENV:-development}" != "production" ] && [ "${ENABLE_DEMO_CREDENTIALS:-1}" = "1" ]; then
+  export ENABLE_DEMO_CREDENTIALS=1
+  if [ -z "${DEMO_PASSWORD:-${SEED_DEMO_PASSWORD:-${DEMO_SEED_PASSWORD:-}}}" ]; then
+    DEMO_PASSWORD="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")"
+    export DEMO_PASSWORD
+  fi
+  npm run provision:demo-credentials
 fi
 
 HOST="${HOST:-127.0.0.1}"

@@ -22,6 +22,7 @@ import SortableHeader from '@/components/ui/SortableHeader'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface TaxReturn {
   id: string
@@ -130,8 +131,12 @@ export default function TaxPage() {
       const returnsData = await returnsRes.json()
       setReturns(returnsData.data)
       setPagination(returnsData.pagination)
-      setDeadlines(await deadlinesRes.json())
-      setClients(await clientsRes.json())
+      const [deadlinesData, clientsData] = await Promise.all([
+        deadlinesRes.json(),
+        clientsRes.json(),
+      ])
+      setDeadlines(collectionFromResponse<TaxDeadline>(deadlinesData))
+      setClients(collectionFromResponse<Client>(clientsData))
     } catch {
       toast('Error fetching tax data', 'error')
     } finally {

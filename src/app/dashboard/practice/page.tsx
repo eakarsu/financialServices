@@ -20,6 +20,7 @@ import Pagination from '@/components/ui/Pagination'
 import SortableHeader from '@/components/ui/SortableHeader'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface PaginationInfo {
   page: number
@@ -255,10 +256,10 @@ export default function PracticePage() {
         fetch('/api/service-items'),
       ])
 
-      setClients(await clientRes.json())
+      setClients(collectionFromResponse<Client>(await clientRes.json()))
 
       const serviceItemsData = await serviceItemsRes.json()
-      setServiceItems(Array.isArray(serviceItemsData) ? serviceItemsData : [])
+      setServiceItems(collectionFromResponse<ServiceItem>(serviceItemsData))
 
       const settingsData = await settingsRes.json()
       setSettings(settingsData)

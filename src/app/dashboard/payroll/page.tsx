@@ -21,6 +21,7 @@ import SortableHeader from '@/components/ui/SortableHeader'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate, formatCurrency, parseDecimal } from '@/lib/utils'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface Employee {
   id: string
@@ -213,8 +214,8 @@ export default function PayrollPage() {
         fetch('/api/templates/reports?category=PAYROLL'),
       ])
       const clientsData = await clientRes.json()
-      setClients(clientsData.data || clientsData)
-      setReportTemplates(await reportsRes.json())
+      setClients(collectionFromResponse<Client>(clientsData))
+      setReportTemplates(collectionFromResponse<ReportTemplate>(await reportsRes.json()))
     } catch {
       toast('Error fetching support data', 'error')
     }

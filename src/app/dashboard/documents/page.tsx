@@ -20,6 +20,7 @@ import SortableHeader from '@/components/ui/SortableHeader'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
 import { formatDate } from '@/lib/utils'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface Document {
   id: string
@@ -168,7 +169,7 @@ function DocumentsContent() {
       const res = await fetch('/api/clients')
       if (!res.ok) throw new Error('Failed to fetch clients')
       const data = await res.json()
-      setClients(data)
+      setClients(collectionFromResponse<Client>(data))
     } catch (error) {
       toast('Failed to load clients.', 'error')
     }
@@ -179,7 +180,7 @@ function DocumentsContent() {
       const res = await fetch('/api/templates/document-requests')
       if (!res.ok) throw new Error('Failed to fetch templates')
       const data = await res.json()
-      setDocumentRequestTemplates(data)
+      setDocumentRequestTemplates(collectionFromResponse<DocumentRequestTemplate>(data))
     } catch (error) {
       toast('Failed to load document request templates.', 'error')
     }

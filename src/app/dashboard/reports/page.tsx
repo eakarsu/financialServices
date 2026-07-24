@@ -13,6 +13,7 @@ import Badge from '@/components/ui/Badge'
 import Modal from '@/components/ui/Modal'
 import ExportButton from '@/components/ExportButton'
 import { formatDate, formatCurrency } from '@/lib/utils'
+import { collectionFromResponse } from '@/lib/api-response'
 
 interface Client {
   id: string
@@ -68,7 +69,7 @@ export default function ReportsPage() {
   const fetchClients = async () => {
     try {
       const res = await fetch('/api/clients')
-      setClients(await res.json())
+      setClients(collectionFromResponse<Client>(await res.json()))
     } catch (error) {
       console.error('Error fetching clients:', error)
     }
@@ -77,7 +78,7 @@ export default function ReportsPage() {
   const fetchReportTemplates = async () => {
     try {
       const res = await fetch('/api/templates/reports?category=FINANCIAL')
-      setReportTemplates(await res.json())
+      setReportTemplates(collectionFromResponse<ReportTemplate>(await res.json()))
     } catch (error) {
       console.error('Error fetching report templates:', error)
     }
