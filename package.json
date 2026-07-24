@@ -48,7 +48,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.555.0",
-    "next": "^15.5.18",
+    "next": "^16.2.11",
     "nodemailer": "^9.0.3",
     "plaid": "^43.0.0",
     "postcss": "^8.5.20",
@@ -68,6 +68,7 @@
   },
   "overrides": {
     "uuid": "11.1.1",
-    "postcss": "$postcss"
+    "postcss": "$postcss",
+    "sharp": "0.35.0"
   }
 }
