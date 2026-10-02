@@ -31,6 +31,9 @@ export default function LoginPage() {
 
       setEmail(data.email)
       setPassword(data.password)
+      const __login = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: data.email, password: data.password }) });
+      if (!__login.ok) { setError('Invalid email or password'); return; }
+      window.location.assign('/');
       toast('Demo credentials filled', 'success')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Demo credentials are unavailable'
