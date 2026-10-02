@@ -31,6 +31,7 @@ export default function LoginPage() {
 
       setEmail(data.email)
       setPassword(data.password)
+      window.setTimeout(() => { const __f = document.querySelector('form'); if (__f) __f.requestSubmit(); }, 60);
       const __login = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: data.email, password: data.password }) });
       if (!__login.ok) { setError('Invalid email or password'); return; }
       window.location.assign('/');
