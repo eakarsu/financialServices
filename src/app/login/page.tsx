@@ -1,5 +1,4 @@
 'use client'
-
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -18,6 +17,7 @@ export default function LoginPage() {
   const { toast } = useToast()
 
   const handleFillDemoCredentials = async () => {
+    if (loading || loadingDemoCredentials) return
     setError('')
     setLoadingDemoCredentials(true)
 
@@ -32,10 +32,7 @@ export default function LoginPage() {
       setEmail(data.email)
       setPassword(data.password)
 
-      const __login = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: data.email, password: data.password }) });
-      if (!__login.ok) { setError('Invalid email or password'); return; }
-      window.location.assign('/');
-      toast('Demo credentials filled', 'success')
+      toast('Demo credentials filled. Select Sign In when ready.', 'success')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Demo credentials are unavailable'
       setError(message)
@@ -43,10 +40,12 @@ export default function LoginPage() {
     } finally {
       setLoadingDemoCredentials(false)
     }
+
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading || loadingDemoCredentials) return
     setError('')
     setLoading(true)
 
@@ -73,6 +72,7 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+
   }
 
   return (
@@ -130,12 +130,12 @@ export default function LoginPage() {
               variant="outline"
               className="w-full"
               loading={loadingDemoCredentials}
-              onClick={handleFillDemoCredentials}
+              onClick={handleFillDemoCredentials} disabled={loading || loadingDemoCredentials}
             >
-              Auto Fill Demo Credentials
+              Fill Demo Credentials
             </Button>
 
-            <Button type="submit" className="w-full" loading={loading}>
+            <Button type="submit" className="w-full" loading={loading} disabled={loadingDemoCredentials}>
               Sign In
             </Button>
           </form>

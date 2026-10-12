@@ -197,6 +197,7 @@ export default function PracticePage() {
       const res = await fetch(`/api/practice/time-entries?${params}`)
       if (!res.ok) throw new Error('Failed to fetch time entries')
       const json = await res.json()
+      if (!Array.isArray(json.data)) throw new Error('Invalid time entries response')
       setTimeEntries(json.data)
       setTimePagination(json.pagination)
     } catch (error) {
@@ -218,6 +219,7 @@ export default function PracticePage() {
       const res = await fetch(`/api/practice/invoices?${params}`)
       if (!res.ok) throw new Error('Failed to fetch invoices')
       const json = await res.json()
+      if (!Array.isArray(json.data)) throw new Error('Invalid invoices response')
       setInvoices(json.data)
       setInvoicePagination(json.pagination)
     } catch (error) {
@@ -239,6 +241,7 @@ export default function PracticePage() {
       const res = await fetch(`/api/practice/tasks?${params}`)
       if (!res.ok) throw new Error('Failed to fetch tasks')
       const json = await res.json()
+      if (!Array.isArray(json.data)) throw new Error('Invalid tasks response')
       setTasks(json.data)
       setTaskPagination(json.pagination)
     } catch (error) {

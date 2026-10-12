@@ -181,7 +181,9 @@ export default function PayrollPage() {
       params.set('sortOrder', employeeSortOrder)
 
       const res = await fetch(`/api/payroll/employees?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch employees')
       const data = await res.json()
+      if (!Array.isArray(data.data)) throw new Error('Invalid employees response')
       setEmployees(data.data)
       setEmployeePagination(data.pagination)
     } catch {
@@ -199,7 +201,9 @@ export default function PayrollPage() {
       params.set('sortOrder', runSortOrder)
 
       const res = await fetch(`/api/payroll/runs?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch payroll runs')
       const data = await res.json()
+      if (!Array.isArray(data.data)) throw new Error('Invalid payroll runs response')
       setPayrollRuns(data.data)
       setRunPagination(data.pagination)
     } catch {

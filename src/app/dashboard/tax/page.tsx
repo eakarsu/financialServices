@@ -128,7 +128,9 @@ export default function TaxPage() {
         fetch('/api/clients'),
       ])
 
+      if (!returnsRes.ok || !deadlinesRes.ok || !clientsRes.ok) throw new Error('Failed to fetch tax data')
       const returnsData = await returnsRes.json()
+      if (!Array.isArray(returnsData.data)) throw new Error('Invalid tax returns response')
       setReturns(returnsData.data)
       setPagination(returnsData.pagination)
       const [deadlinesData, clientsData] = await Promise.all([

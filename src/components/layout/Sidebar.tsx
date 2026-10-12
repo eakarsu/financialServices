@@ -21,6 +21,7 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
+  { name: 'AI Operations', href: '/dashboard/ai-operations', icon: BarChart3 },
   { name: 'Clients', href: '/dashboard/clients', icon: Users },
   { name: 'Documents', href: '/dashboard/documents', icon: FileText },
   { name: 'Bookkeeping', href: '/dashboard/bookkeeping', icon: BookOpen },

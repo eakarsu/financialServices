@@ -80,7 +80,9 @@ export default function ClientsPage() {
       params.set('sortOrder', sortOrder)
 
       const res = await fetch(`/api/clients?${params}`)
+      if (!res.ok) throw new Error('Failed to fetch clients')
       const data = await res.json()
+      if (!Array.isArray(data.data)) throw new Error('Invalid clients response')
       setClients(data.data)
       setPagination(data.pagination)
     } catch {

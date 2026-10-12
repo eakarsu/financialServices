@@ -1,4 +1,5 @@
 import { requireConfig } from './secrets'
+import { AdvisoryError, execution, providerResult } from './advisory-execution'
 
 const CANONICAL_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
@@ -18,13 +19,17 @@ export interface OpenRouterEvidence {
   }
 }
 
-export async function requestWorkflowReadiness(workflow: string): Promise<OpenRouterEvidence> {
+export async function requestWorkflowReadiness(workflow: string, signal?: AbortSignal): Promise<OpenRouterEvidence> {
   const configuredBaseUrl = process.env.OPENROUTER_BASE_URL || CANONICAL_OPENROUTER_BASE_URL
   if (configuredBaseUrl.replace(/\/$/, '') !== CANONICAL_OPENROUTER_BASE_URL) {
     throw new Error('OPENROUTER_BASE_URL must use the canonical OpenRouter API endpoint')
   }
 
+  if (!process.env.OPENROUTER_MODEL || !process.env.OPENROUTER_API_KEY) throw new AdvisoryError('OpenRouter is not configured', 503)
   const model = requireConfig('OPENROUTER_MODEL')
+  const job = execution(signal, 45_000)
+  try {
+  job.check()
   const response = await fetch(`${CANONICAL_OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -47,11 +52,12 @@ export async function requestWorkflowReadiness(workflow: string): Promise<OpenRo
         },
       ],
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: job.signal,
   })
 
   const payload = await response.json().catch(() => null) as OpenRouterResponse | null
-  if (!response.ok) throw new Error(`OpenRouter request failed with status ${response.status}`)
+  providerResult(payload, response, model)
+  job.check()
 
   const requestId = typeof payload?.id === 'string' ? payload.id.trim() : ''
   const providerModel = typeof payload?.model === 'string' ? payload.model.trim() : ''
@@ -71,4 +77,5 @@ export async function requestWorkflowReadiness(workflow: string): Promise<OpenRo
       completedAt: new Date().toISOString(),
     },
   }
+  } finally { job.close() }
 }

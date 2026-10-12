@@ -155,6 +155,7 @@ function DocumentsContent() {
       const res = await fetch(`/api/documents?${params}`)
       if (!res.ok) throw new Error('Failed to fetch documents')
       const response = await res.json()
+      if (!Array.isArray(response.data)) throw new Error('Invalid documents response')
       setDocuments(response.data)
       setPagination(response.pagination)
     } catch (error) {

@@ -175,7 +175,9 @@ export default function BookkeepingPage() {
         fetch('/api/clients'),
       ])
 
+      if (!txRes.ok || !bankRes.ok || !coaRes.ok || !clientRes.ok) throw new Error('Failed to fetch bookkeeping data')
       const txData = await txRes.json()
+      if (!Array.isArray(txData.data)) throw new Error('Invalid transactions response')
       setTransactions(txData.data)
       setPagination(txData.pagination)
 

@@ -16,6 +16,10 @@ The former generated AI/demo routes were removed. Financial-health narrative is 
 
 ## Development
 
+The **AI Operations** sidebar entry opens `/dashboard/ai-operations` for the existing legal-workflow readiness review. Three examples fill the complete workflow input; a single **Generate with OpenRouter** action returns a readable advisory report. Copy and Download export readable text. Saved reports are scoped to their requesting user and firm. Edit reuses an input for a new review, Cancel closes the centered preview, and Delete is unavailable because provider evidence is retained.
+
+Cancel aborts the provider request and rolls back an unfinished result write. Earlier completed receipts remain in history. This review does not approve documents, alter accounting data, file records, sign, redact or change retention. Existing firm access and professional review requirements remain authoritative.
+
 Requirements: Node.js 22+, PostgreSQL 16+, and private provider test credentials when exercising external adapters.
 
 ```sh
